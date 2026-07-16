@@ -1,4 +1,30 @@
 {
-  "name": "preview",
-  "packageManager": "yarn@4.17.1"
+  "name": "preview-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.17.1",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "postinstall": "effect-tsgo patch",
+    "build": "tsdown",
+    "typecheck": "yarn build && yarn workspace @nmnmcc/preview typecheck && yarn workspace @nmnmcc/preview-cli typecheck && yarn workspace @nmnmcc/preview-react typecheck && yarn workspace @nmnmcc/preview-vue typecheck && yarn workspace @preview/example-react typecheck",
+    "test": "yarn workspace @nmnmcc/preview test && yarn workspace @nmnmcc/preview-cli test",
+    "test:e2e": "yarn build && yarn workspace @preview/example-react generate && node tools/verify-example.mjs",
+    "example:generate": "yarn build && yarn workspace @preview/example-react generate"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/core": "^0.18.5",
+    "@effect/tsgo": "0.22.0",
+    "@effect/vitest": "4.0.0-beta.98",
+    "@types/node": "^24.10.13",
+    "effect": "4.0.0-beta.98",
+    "publint": "^0.3.21",
+    "tsdown": "^0.22.8",
+    "typescript": "7.0.2",
+    "unplugin-unused": "^0.5.7",
+    "vitest": "4.1.10"
+  }
 }

@@ -1,0 +1,8 @@
+[submodule "references/vite"]
+	path = references/vite
+	url = https://github.com/vitejs/vite.git
+	shallow = true
+[submodule "references/effect-smol"]
+	path = references/effect-smol
+	url = https://github.com/Effect-TS/effect-smol.git
+	shallow = true

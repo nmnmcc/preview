@@ -1,0 +1,25 @@
+{
+  "name": "@preview/example-react",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "generate": "preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nmnmcc/preview": "workspace:*",
+    "@nmnmcc/preview-cli": "workspace:*",
+    "@nmnmcc/preview-react": "workspace:*",
+    "@vitejs/plugin-react": "6.0.3",
+    "playwright": "1.61.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "vite": "8.1.4"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "7.0.2"
+  }
+}

@@ -15,3 +15,8 @@ devenv.local.yaml
 
 node_modules
 .pnp.*
+
+dist
+coverage
+*.tsbuildinfo
+.preview

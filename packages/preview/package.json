@@ -1,0 +1,74 @@
+{
+  "name": "@nmnmcc/preview",
+  "version": "0.0.1",
+  "description": "Render Vite preview modules to PNG files",
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "browser": {
+          "types": "./dist/browser.d.mts",
+          "default": "./dist/browser.mjs"
+        },
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "./package.json": "./package.json",
+      "./internal/runner": {
+        "types": "./dist/runner.d.mts",
+        "default": "./dist/runner.mjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "yarn --cwd ../.. tsdown -F @nmnmcc/preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.98",
+    "@effect/platform-node-shared": "4.0.0-beta.98",
+    "effect": "4.0.0-beta.98"
+  },
+  "peerDependencies": {
+    "playwright": "^1.61.0",
+    "vite": "^8.0.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.98",
+    "playwright": "1.61.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.4",
+    "vitest": "4.1.10"
+  },
+  "exports": {
+    ".": {
+      "browser": {
+        "development": "./src/browser.ts",
+        "types": "./dist/browser.d.mts",
+        "default": "./dist/browser.mjs"
+      },
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json",
+    "./internal/runner": {
+      "development": "./src/runner.ts",
+      "types": "./dist/runner.d.mts",
+      "default": "./dist/runner.mjs"
+    }
+  }
+}
