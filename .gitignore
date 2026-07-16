@@ -1,0 +1,17 @@
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+.direnv
+
+.pre-commit-config.yaml
+
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+node_modules
+.pnp.*
