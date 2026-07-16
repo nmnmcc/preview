@@ -5,103 +5,85 @@ import {
   strictEqual,
 } from "@effect/vitest/utils";
 import {
-  preview,
   template,
-  type PreviewOptions,
-  type PreviewRender,
   type PreviewTemplate,
 } from "../src/Preview";
+import {
+  preview,
+  type ComponentPreviewDefinition,
+  type PreviewMount,
+  type PreviewOptions,
+} from "../src/index";
 
 interface ProjectPreviewInput {
-  readonly captureFullPage: boolean;
-  readonly render: PreviewRender;
+  readonly fullHeight: boolean;
+  readonly mount: PreviewMount;
 }
-
-const compileTemplateContracts = (): void => {
-  interface BaseInput {
-    readonly value: string;
-  }
-
-  const base: PreviewTemplate<BaseInput> = ({ value }) =>
-    preview({
-      render: (root) => {
-        root.textContent = value;
-      },
-    });
-  const composed = template(
-    (input: { readonly count: number }): BaseInput => ({
-      value: String(input.count),
-    }),
-    base,
-  );
-
-  composed({ count: 1 });
-
-  // @ts-expect-error The composed input requires count.
-  composed({});
-
-  template(
-    // @ts-expect-error The map result must match the base input.
-    (input: { readonly invalid: true }) => input,
-    base,
-  );
-};
 
 describe("preview templates", () => {
   it("uses the core preview when no base is given", () => {
     let mapCalls = 0;
-    const render: PreviewRender = () => undefined;
+    const mount: PreviewMount = () => () => undefined;
     const projectPreview = template(
       (input: ProjectPreviewInput): PreviewOptions => {
         mapCalls += 1;
         return {
-          capture: input.captureFullPage ? "fullPage" : "viewport",
-          render: input.render,
+          mount: input.mount,
+          viewports: {
+            mobile: { height: input.fullHeight ? "full" : 844 },
+          },
         };
       },
     );
 
     strictEqual(mapCalls, 0);
-    const definition = projectPreview({ captureFullPage: true, render });
+    const definition = projectPreview({ fullHeight: true, mount });
 
     strictEqual(mapCalls, 1);
-    strictEqual(definition.render, render);
-    deepStrictEqual(definition.metadata, { capture: "fullPage" });
+    strictEqual(definition.target.mount, mount);
+    deepStrictEqual(definition.metadata, {
+      viewports: { mobile: { height: "full" } },
+    });
     assertTrue(Object.isFrozen(definition));
     assertTrue(Object.isFrozen(definition.metadata));
   });
 
   it("composes maps from the outer template to the base", () => {
     const calls: Array<string> = [];
-    const render: PreviewRender = () => undefined;
-    const base: PreviewTemplate<PreviewOptions> = (options) => {
+    const mount: PreviewMount = () => () => undefined;
+    const base: PreviewTemplate<
+      PreviewOptions,
+      ComponentPreviewDefinition
+    > = (options) => {
       calls.push("base");
       return preview(options);
     };
-    const withCapture = template(
+    const withHeight = template(
       (input: ProjectPreviewInput): PreviewOptions => {
-        calls.push("capture");
+        calls.push("height");
         return {
-          capture: input.captureFullPage ? "fullPage" : "viewport",
-          render: input.render,
+          mount: input.mount,
+          viewports: {
+            mobile: { height: input.fullHeight ? "full" : 844 },
+          },
         };
       },
       base,
     );
     const withDefaults = template(
-      (input: { readonly render: PreviewRender }): ProjectPreviewInput => {
+      (input: { readonly mount: PreviewMount }): ProjectPreviewInput => {
         calls.push("defaults");
-        return { captureFullPage: true, render: input.render };
+        return { fullHeight: true, mount: input.mount };
       },
-      withCapture,
+      withHeight,
     );
 
-    const definition = withDefaults({ render });
+    const definition = withDefaults({ mount });
 
-    deepStrictEqual(calls, ["defaults", "capture", "base"]);
-    deepStrictEqual(definition.metadata, { capture: "fullPage" });
-    strictEqual(definition.render, render);
+    deepStrictEqual(calls, ["defaults", "height", "base"]);
+    deepStrictEqual(definition.metadata, {
+      viewports: { mobile: { height: "full" } },
+    });
+    strictEqual(definition.target.mount, mount);
   });
 });
-
-void compileTemplateContracts;

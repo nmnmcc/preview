@@ -1,72 +1,116 @@
 import { rejects } from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "@effect/vitest";
-import {
-  assertInclude,
-  assertMatch,
-  deepStrictEqual,
-  strictEqual,
-} from "@effect/vitest/utils";
-import { createServer } from "vite";
+import { deepStrictEqual, strictEqual } from "@effect/vitest/utils";
+import * as Effect from "effect/Effect";
 import preview from "../src/index";
+import * as ProjectRunner from "../src/internal/cli/services/ProjectRunner";
+import * as Artifacts from "../src/internal/services/Artifacts";
 
-describe("preview plugin api", () => {
-  it("generates only while attached to a running Vite server", async () => {
-    const root = await mkdtemp(join(tmpdir(), "preview-api-"));
-    const plugin = preview({
-      viewports: { test: { width: 100, height: 100 } },
-    });
+const pluginOptions = {
+  artifacts: { clean: true, output: "configured" },
+  capture: { viewports: { test: { width: 100, height: 100 } } },
+} as const;
 
-    await rejects(
-      plugin.previewApi.generate(),
-      /not attached to a running Vite server/,
-    );
-
-    const server = await createServer({
-      configFile: false,
-      logLevel: "silent",
-      mode: "preview-cli",
-      plugins: [plugin],
+const runGeneration = (root: string, output?: string) =>
+  Effect.gen(function* () {
+    const runner = yield* ProjectRunner.ProjectRunner;
+    return yield* runner.generate({
       root,
-      server: { host: "127.0.0.1", port: 0, strictPort: true },
+      paths: [],
+      ...(output === undefined ? {} : { output }),
     });
+  }).pipe(
+    Effect.provide(ProjectRunner.layer),
+    Effect.runPromise,
+  );
 
+describe("preview plugin control", () => {
+  it("returns a standard Vite plugin without a public generation API", () => {
+    const plugin = preview(pluginOptions);
+
+    strictEqual(plugin.name, "@nmnmcc/preview");
+    strictEqual(Reflect.has(plugin, "previewApi"), false);
+  });
+
+  it("lets the CLI use the private control for the configured plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "preview-control-"));
+    const configuredStalePng = join(
+      root,
+      "src",
+      "configured",
+      "Stale.preview.ts",
+      "test.png",
+    );
+    const overrideStalePng = join(
+      root,
+      "src",
+      "override",
+      "Stale.preview.ts",
+      "test.png",
+    );
     try {
-      await rejects(plugin.previewApi.generate(), /no reachable local URL/);
-      await server.listen();
+      await Promise.all([
+        mkdir(join(configuredStalePng, ".."), { recursive: true }),
+        mkdir(join(overrideStalePng, ".."), { recursive: true }),
+      ]);
+      await Promise.all([
+        writeFile(configuredStalePng, Uint8Array.from([137, 80, 78, 71])),
+        writeFile(overrideStalePng, Uint8Array.from([137, 80, 78, 71])),
+        writeFile(
+          join(configuredStalePng, "..", Artifacts.OwnershipMarkerName),
+          Artifacts.OwnershipMarkerContent,
+        ),
+        writeFile(
+          join(overrideStalePng, "..", Artifacts.OwnershipMarkerName),
+          Artifacts.OwnershipMarkerContent,
+        ),
+        writeFile(
+          join(root, "package.json"),
+          JSON.stringify({ private: true, type: "module" }),
+        ),
+        writeFile(
+          join(root, "vite.config.ts"),
+          `import preview from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)};
+export default { logLevel: "silent", plugins: [preview(${JSON.stringify(pluginOptions)})] };
+`,
+        ),
+      ]);
 
-      const baseUrl = server.resolvedUrls?.local[0];
-      if (baseUrl === undefined) {
-        throw new Error("The test Vite server has no local URL.");
-      }
-      const html = await fetch(
-        new URL("/__nmnmcc_preview/", baseUrl),
-      ).then((response) => response.text());
-      const runnerProxy = html.match(
-        /<script type="module" src="([^"]*html-proxy[^"]*)"/u,
-      )?.[1];
-      if (runnerProxy === undefined) {
-        throw new Error("The preview runner script is missing.");
-      }
-      const runnerModule = await fetch(new URL(runnerProxy, baseUrl)).then(
-        (response) => response.text(),
-      );
-
-      assertMatch(runnerModule, /\/src\/runner\.ts/u);
-      assertInclude(runnerModule, "runPreview()");
-      strictEqual(runnerModule.includes("virtual:"), false);
-
-      deepStrictEqual(await plugin.previewApi.generate({ paths: [] }), {
+      deepStrictEqual(await runGeneration(root, "override"), {
         artifacts: [],
         failures: [],
       });
-
-      await server.close();
-      await rejects(plugin.previewApi.generate(), /plugin is closed/);
+      await Promise.all([
+        rejects(access(configuredStalePng), /ENOENT/u),
+        rejects(access(overrideStalePng), /ENOENT/u),
+      ]);
+      await rejects(runGeneration(root, "../outside"), /generation failed/iu);
     } finally {
-      await server.close();
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("reports a Vite config without the preview plugin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "preview-no-plugin-"));
+    try {
+      await writeFile(
+        join(root, "vite.config.ts"),
+        `export default { logLevel: "silent" };\n`,
+      );
+      await rejects(
+        runGeneration(root),
+        /does not include @nmnmcc\/preview/u,
+      );
+    } finally {
       await rm(root, { force: true, recursive: true });
     }
   });

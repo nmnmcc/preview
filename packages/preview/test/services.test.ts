@@ -6,32 +6,35 @@ import {
 } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Config from "../src/internal/config";
 import * as Artifacts from "../src/internal/services/Artifacts";
 import * as Browser from "../src/internal/services/Browser";
+import * as Config from "../src/internal/services/Config";
 import * as Discovery from "../src/internal/services/Discovery";
 import * as Renderer from "../src/internal/services/Renderer";
 
-const config: Config.ResolvedPreviewOptions = {
-  viewports: {
-    mobile: {
-      name: "mobile",
-      width: 390,
-      height: 844,
-      deviceScaleFactor: 1,
+const configLayer = (
+  clean = false,
+  version?: Artifacts.VersionOptions,
+) =>
+  Config.layer({
+    artifacts: {
+      clean,
+      ...(version === undefined ? {} : { version }),
     },
-  },
-  capture: "viewport",
-  include: ["**/*.preview.tsx"],
-  timeoutMs: 30_000,
-};
+    capture: {
+      viewports: {
+        mobile: { width: 390, height: 844 },
+      },
+    },
+    files: { include: "**/*.preview.tsx" },
+  });
 
 const source = "/project/Card.preview.tsx";
 const capturedPng = Uint8Array.from([1, 2, 3]);
 
 const browserSession: Browser.Session = {
   probe: Effect.fnUntraced(function* () {
-    return [{ metadata: {} }];
+    return [{ metadata: {}, target: { type: "sandbox" } }];
   }),
   capture: Effect.fnUntraced(function* () {
     return capturedPng;
@@ -58,11 +61,29 @@ const unusedBrowserLayer = Layer.succeed(
   }),
 );
 
-const noWriteArtifactsLayer = Layer.succeed(
+const unusedArtifactsLayer = Layer.succeed(
   Artifacts.Artifacts,
   Artifacts.Artifacts.of({
+    cleanProject: Effect.fnUntraced(function* () {
+      return yield* Effect.die(
+        new Error("The empty path cleaned the project."),
+      );
+    }),
+    cleanSource: Effect.fnUntraced(function* () {
+      return yield* Effect.die(
+        new Error("The empty path cleaned a source."),
+      );
+    }),
+    isPathInDirectory: () => false,
+    ownedDirectories: Effect.fnUntraced(function* () {
+      return new Set<string>();
+    }),
+    sourceDirectory: (writtenSource, output) =>
+      `${writtenSource}/${output}`,
     write: Effect.fnUntraced(function* () {
-      return "unused.png";
+      return yield* Effect.die(
+        new Error("The empty path wrote an artifact."),
+      );
     }),
   }),
 );
@@ -85,36 +106,16 @@ const oneFileDiscoveryLayer = Layer.succeed(
   }),
 );
 
-const recordingArtifactsLayer = Layer.succeed(
-  Artifacts.Artifacts,
-  Artifacts.Artifacts.of({
-    write: Effect.fnUntraced(function* (
-      writtenSource,
-      viewport,
-      png,
-      variant,
-    ) {
-      deepStrictEqual(
-        { writtenSource, viewport, png, variant },
-        {
-          writtenSource: source,
-          viewport: "mobile",
-          png: capturedPng,
-          variant: undefined,
-        },
-      );
-      return "/project/.preview/Card.mobile.png";
-    }),
-  }),
-);
-
 const rendererLayer = (
   discovery: Layer.Layer<Discovery.Discovery>,
   artifacts: Layer.Layer<Artifacts.Artifacts>,
   browser: Layer.Layer<Browser.Browser>,
+  configuration = configLayer(),
 ) =>
   Renderer.layer.pipe(
-    Layer.provide(Layer.mergeAll(discovery, artifacts, browser)),
+    Layer.provide(
+      Layer.mergeAll(discovery, artifacts, browser, configuration),
+    ),
   );
 
 describe("preview services", () => {
@@ -124,7 +125,6 @@ describe("preview services", () => {
       const summary = yield* renderer.renderProject({
         root: "/project",
         baseUrl: "http://preview.test",
-        config,
       });
 
       deepStrictEqual(summary, { artifacts: [], failures: [] });
@@ -132,86 +132,36 @@ describe("preview services", () => {
       Effect.provide(
         rendererLayer(
           emptyDiscoveryLayer,
-          noWriteArtifactsLayer,
+          unusedArtifactsLayer,
           unusedBrowserLayer,
         ),
       ),
     ),
   );
 
-  it.effect("renders a discovered file through the browser service", () =>
-    Effect.gen(function* () {
-      const renderer = yield* Renderer.Renderer;
-      const summary = yield* renderer.renderProject({
-        root: "/project",
-        baseUrl: "http://preview.test",
-        config,
-      });
-
-      deepStrictEqual(summary, {
-        artifacts: [
-          {
-            source,
-            viewport: "mobile",
-            pngPath: "/project/.preview/Card.mobile.png",
-          },
-        ],
-        failures: [],
-      });
-    }).pipe(
-      Effect.provide(
-        rendererLayer(
-          oneFileDiscoveryLayer,
-          recordingArtifactsLayer,
-          browserLayer,
-        ),
-      ),
-    ),
-  );
-
-  it.effect("keeps one failed variant from blocking the other variants", () => {
-    const captures: Array<string | undefined> = [];
-    const variantBrowserLayer = Layer.succeed(
-      Browser.Browser,
-      Browser.Browser.of({
-        launch: Effect.fnUntraced(function* () {
-          return {
-            probe: Effect.fnUntraced(function* () {
-              return [
-                {
-                  variant: "state=invalid",
-                  metadata: { capture: "invalid" },
-                },
-                { variant: "state=ready", metadata: {} },
-              ];
-            }),
-            capture: Effect.fnUntraced(function* (request) {
-              captures.push(request.variant);
-              return capturedPng;
-            }),
-          } satisfies Browser.Session;
-        }),
-      }),
-    );
-    const variantArtifactsLayer = Layer.succeed(
+  it.effect("full clean runs when every source was deleted", () => {
+    const cleaned: Array<Artifacts.CleanProjectInput> = [];
+    const artifactsLayer = Layer.succeed(
       Artifacts.Artifacts,
       Artifacts.Artifacts.of({
-        write: Effect.fnUntraced(function* (
-          writtenSource,
-          viewport,
-          png,
-          variant,
-        ) {
-          deepStrictEqual(
-            { writtenSource, viewport, png, variant },
-            {
-              writtenSource: source,
-              viewport: "mobile",
-              png: capturedPng,
-              variant: "state=ready",
-            },
+        cleanProject: Effect.fnUntraced(function* (input) {
+          cleaned.push(input);
+        }),
+        cleanSource: Effect.fnUntraced(function* () {
+          return yield* Effect.die(
+            new Error("An empty project cleaned a source."),
           );
-          return "/project/.preview/Card.state=ready.mobile.png";
+        }),
+        isPathInDirectory: () => false,
+        ownedDirectories: Effect.fnUntraced(function* () {
+          return new Set<string>();
+        }),
+        sourceDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
+        write: Effect.fnUntraced(function* () {
+          return yield* Effect.die(
+            new Error("An empty project wrote an artifact."),
+          );
         }),
       }),
     );
@@ -221,33 +171,310 @@ describe("preview services", () => {
       const summary = yield* renderer.renderProject({
         root: "/project",
         baseUrl: "http://preview.test",
-        config,
       });
 
-      deepStrictEqual(captures, ["state=ready"]);
-      deepStrictEqual(summary.artifacts, [
+      deepStrictEqual(summary, { artifacts: [], failures: [] });
+      deepStrictEqual(cleaned, [
         {
-          source,
-          variant: "state=ready",
-          viewport: "mobile",
-          pngPath: "/project/.preview/Card.state=ready.mobile.png",
+          root: "/project",
+          outputs: [".preview"],
+          activeSources: [],
         },
       ]);
-      strictEqual(summary.failures.length, 1);
-      const failure = summary.failures[0];
-      if (failure === undefined) throw new Error("The failure is missing.");
-      strictEqual(failure.source, source);
-      strictEqual(failure.variant, "state=invalid");
-      strictEqual(failure.viewport, undefined);
-      assertInclude(failure.message, "capture");
     }).pipe(
       Effect.provide(
         rendererLayer(
-          oneFileDiscoveryLayer,
-          variantArtifactsLayer,
-          variantBrowserLayer,
+          emptyDiscoveryLayer,
+          artifactsLayer,
+          unusedBrowserLayer,
+          configLayer(true),
         ),
       ),
     );
   });
+
+  it.effect("renders and cleans a complete full run", () => {
+    const events: Array<string> = [];
+    const artifactsLayer = Layer.succeed(
+      Artifacts.Artifacts,
+      Artifacts.Artifacts.of({
+        cleanProject: Effect.fnUntraced(function* (input) {
+          events.push("project");
+          deepStrictEqual(input, {
+            root: "/project",
+            outputs: [".preview", "images"],
+            activeSources: [{ source, output: "images" }],
+          });
+        }),
+        cleanSource: Effect.fnUntraced(function* (input) {
+          events.push("source");
+          deepStrictEqual(input, {
+            source,
+            output: "images",
+            targets: [{ viewport: "mobile" }],
+            version: { retain: 2 },
+          });
+        }),
+        isPathInDirectory: () => false,
+        ownedDirectories: Effect.fnUntraced(function* () {
+          return new Set<string>();
+        }),
+        sourceDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
+        write: Effect.fnUntraced(function* (input) {
+          events.push("write");
+          deepStrictEqual(input, {
+            source,
+            output: "images",
+            viewport: "mobile",
+            png: capturedPng,
+            version: { retain: 2 },
+          });
+          return "/project/images/Card.preview.tsx/mobile.png";
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const renderer = yield* Renderer.Renderer;
+      const summary = yield* renderer.renderProject({
+        root: "/project",
+        baseUrl: "http://preview.test",
+        output: "images",
+      });
+
+      deepStrictEqual(events, ["write", "source", "project"]);
+      deepStrictEqual(summary, {
+        artifacts: [
+          {
+            source,
+            viewport: "mobile",
+            pngPath: "/project/images/Card.preview.tsx/mobile.png",
+          },
+        ],
+        failures: [],
+      });
+    }).pipe(
+      Effect.provide(
+        rendererLayer(
+          oneFileDiscoveryLayer,
+          artifactsLayer,
+          browserLayer,
+          configLayer(true, { retain: 2 }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("cleans a partial source and protects known failed targets", () => {
+    const cleaned: Array<Artifacts.CleanSourceInput> = [];
+    const partialBrowserLayer = Layer.succeed(
+      Browser.Browser,
+      Browser.Browser.of({
+        launch: Effect.fnUntraced(function* () {
+          return {
+            probe: Effect.fnUntraced(function* () {
+              return [
+                {
+                  variant: "state=ready",
+                  metadata: {},
+                  target: { type: "sandbox" },
+                },
+                {
+                  variant: "state=error",
+                  metadata: {},
+                  target: { type: "sandbox" },
+                },
+              ];
+            }),
+            capture: Effect.fnUntraced(function* (input) {
+              if (input.variant === "state=error") {
+                return yield* new Browser.PreviewBrowserError({
+                  source,
+                  variant: input.variant,
+                  viewport: input.viewport.name,
+                  detail: "Capture failed.",
+                  cause: new Error("capture"),
+                });
+              }
+              return capturedPng;
+            }),
+          } satisfies Browser.Session;
+        }),
+      }),
+    );
+    const artifactsLayer = Layer.succeed(
+      Artifacts.Artifacts,
+      Artifacts.Artifacts.of({
+        cleanProject: Effect.fnUntraced(function* () {
+          return yield* Effect.die(
+            new Error("A partial run cleaned the project."),
+          );
+        }),
+        cleanSource: Effect.fnUntraced(function* (input) {
+          cleaned.push(input);
+        }),
+        isPathInDirectory: () => false,
+        ownedDirectories: Effect.fnUntraced(function* () {
+          return new Set<string>();
+        }),
+        sourceDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
+        write: Effect.fnUntraced(function* (input) {
+          strictEqual(input.variant, "state=ready");
+          return "/project/.preview/Card.preview.tsx/state=ready.mobile.png";
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const renderer = yield* Renderer.Renderer;
+      const summary = yield* renderer.renderProject({
+        root: "/project",
+        baseUrl: "http://preview.test",
+        filters: [source],
+      });
+
+      deepStrictEqual(cleaned, [
+        {
+          source,
+          output: ".preview",
+          targets: [
+            { viewport: "mobile", variant: "state=ready" },
+            { viewport: "mobile", variant: "state=error" },
+          ],
+        },
+      ]);
+      strictEqual(summary.artifacts.length, 1);
+      strictEqual(summary.failures.length, 1);
+      assertInclude(summary.failures[0]?.message ?? "", "Capture failed");
+    }).pipe(
+      Effect.provide(
+        rendererLayer(
+          oneFileDiscoveryLayer,
+          artifactsLayer,
+          partialBrowserLayer,
+          configLayer(true),
+        ),
+      ),
+    );
+  });
+
+  it.effect("skips source clean when target metadata is incomplete", () => {
+    const incompleteBrowserLayer = Layer.succeed(
+      Browser.Browser,
+      Browser.Browser.of({
+        launch: Effect.fnUntraced(function* () {
+          return {
+            probe: Effect.fnUntraced(function* () {
+              return [
+                {
+                  variant: "state=invalid",
+                  metadata: {
+                    viewports: { mobile: { height: "invalid" } },
+                  },
+                  target: { type: "sandbox" },
+                },
+              ];
+            }),
+            capture: Effect.fnUntraced(function* () {
+              return yield* Effect.die(
+                new Error("Invalid metadata reached capture."),
+              );
+            }),
+          } satisfies Browser.Session;
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const renderer = yield* Renderer.Renderer;
+      const summary = yield* renderer.renderProject({
+        root: "/project",
+        baseUrl: "http://preview.test",
+        filters: [source],
+      });
+
+      strictEqual(summary.artifacts.length, 0);
+      strictEqual(summary.failures.length, 1);
+      assertInclude(summary.failures[0]?.message ?? "", "height");
+    }).pipe(
+      Effect.provide(
+        rendererLayer(
+          oneFileDiscoveryLayer,
+          unusedArtifactsLayer,
+          incompleteBrowserLayer,
+          configLayer(true),
+        ),
+      ),
+    );
+  });
+
+  it.effect("skips source clean when the probe fails", () => {
+    const failedProbeBrowserLayer = Layer.succeed(
+      Browser.Browser,
+      Browser.Browser.of({
+        launch: Effect.fnUntraced(function* () {
+          return {
+            probe: Effect.fnUntraced(function* () {
+              return yield* new Browser.PreviewBrowserError({
+                source,
+                detail: "Probe failed.",
+                cause: new Error("probe"),
+              });
+            }),
+            capture: Effect.fnUntraced(function* () {
+              return yield* Effect.die(
+                new Error("A failed probe reached capture."),
+              );
+            }),
+          } satisfies Browser.Session;
+        }),
+      }),
+    );
+
+    return Effect.gen(function* () {
+      const renderer = yield* Renderer.Renderer;
+      const summary = yield* renderer.renderProject({
+        root: "/project",
+        baseUrl: "http://preview.test",
+        filters: [source],
+      });
+
+      strictEqual(summary.artifacts.length, 0);
+      strictEqual(summary.failures.length, 1);
+      assertInclude(summary.failures[0]?.message ?? "", "Probe failed");
+    }).pipe(
+      Effect.provide(
+        rendererLayer(
+          oneFileDiscoveryLayer,
+          unusedArtifactsLayer,
+          failedProbeBrowserLayer,
+          configLayer(true),
+        ),
+      ),
+    );
+  });
+
+  it.effect("does not clean after a partial run with no match", () =>
+    Effect.gen(function* () {
+      const renderer = yield* Renderer.Renderer;
+      const summary = yield* renderer.renderProject({
+        root: "/project",
+        baseUrl: "http://preview.test",
+        filters: [source],
+      });
+
+      deepStrictEqual(summary, { artifacts: [], failures: [] });
+    }).pipe(
+      Effect.provide(
+        rendererLayer(
+          emptyDiscoveryLayer,
+          unusedArtifactsLayer,
+          unusedBrowserLayer,
+          configLayer(true),
+        ),
+      ),
+    ),
+  );
 });

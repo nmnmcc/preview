@@ -1,42 +1,33 @@
 import { fileURLToPath } from "node:url";
 import * as Effect from "effect/Effect";
 import * as ManagedRuntime from "effect/ManagedRuntime";
-import * as Semaphore from "effect/Semaphore";
 import type {
   ModuleNode,
   Plugin,
-  ResolvedConfig,
   ViteDevServer,
 } from "vite";
-import * as Config from "./config";
+import type { PreviewPluginOptions } from "../PreviewPlugin";
 import type * as Generation from "./generation";
-import layer from "./layer";
+import { layer } from "./layer";
+import * as PluginControl from "./plugin-control";
+import {
+  findApplicationPreviewCode,
+  formatProductionCodeError,
+  PreviewLabel,
+} from "./check";
 import * as Protocol from "./protocol";
-import * as Renderer from "./services/Renderer";
+import * as Config from "./services/Config";
+import * as PluginController from "./services/PluginController";
 
-export interface GenerateRequest {
-  readonly paths?: ReadonlyArray<string>;
-}
-
-export interface PreviewPluginApi {
-  readonly generate: (
-    request?: GenerateRequest,
-  ) => Promise<Generation.GenerationSummary>;
-}
-
-export interface PreviewVitePlugin extends Plugin {
-  readonly previewApi: PreviewPluginApi;
-}
-
-const runnerModuleId = "@nmnmcc/preview/internal/runner";
-const runnerModulePath = fileURLToPath(
+const RunnerModuleId = "@nmnmcc/preview/internal/runner";
+const RunnerModulePath = fileURLToPath(
   new URL(
-    "./src/runner.ts",
+    "./src/internal/browser/main.ts",
     import.meta.resolve("@nmnmcc/preview/package.json"),
   ),
 );
 
-const htmlTemplate = `<!doctype html>
+const HtmlTemplate = `<!doctype html>
 <html>
   <head>
     <meta charset="UTF-8" />
@@ -45,9 +36,14 @@ const htmlTemplate = `<!doctype html>
   </head>
   <body>
     <div id="preview-root"></div>
+    <script>
+      // React framework plugins can add Fast Refresh code to Sandbox modules.
+      window.$RefreshReg$ ??= () => {}
+      window.$RefreshSig$ ??= () => (type) => type
+      window.__vite_plugin_react_preamble_installed__ = true
+    </script>
     <script type="module">
-      import { runPreview } from "@nmnmcc/preview/internal/runner"
-      runPreview()
+      import "@nmnmcc/preview/internal/runner"
     </script>
   </body>
 </html>`;
@@ -59,21 +55,23 @@ const formatUnknownError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const preview = (
-  options: Config.PreviewPluginOptions,
-): PreviewVitePlugin => {
-  const runtime = ManagedRuntime.make(layer);
-  let server: ViteDevServer | undefined;
-  let viteConfig: ResolvedConfig | undefined;
-  let config: Config.ResolvedPreviewOptions | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const generationSemaphore = Semaphore.makeUnsafe(1);
+  options: PreviewPluginOptions,
+): Plugin => {
+  const check = options.build?.check ?? true;
+  const makeRuntime = () => ManagedRuntime.make(layer(options));
+  type PreviewRuntime = ReturnType<typeof makeRuntime>;
+  let runtime: PreviewRuntime | undefined;
   let closePromise: Promise<void> | undefined;
   let closed = false;
-  let generateAllPending = false;
-  const pendingPaths = new Set<string>();
+  let command: "build" | "serve" | undefined;
+
+  const getRuntime = (): PreviewRuntime => {
+    runtime ??= makeRuntime();
+    return runtime;
+  };
 
   const generate = (
-    request: GenerateRequest = {},
+    request: PluginControl.GenerateRequest = {},
   ): Promise<Generation.GenerationSummary> => {
     if (closed) {
       return Promise.reject(
@@ -82,14 +80,8 @@ export const preview = (
         }),
       );
     }
-    const currentServer = server;
-    const currentViteConfig = viteConfig;
-    const currentConfig = config;
-    if (
-      currentServer === undefined ||
-      currentViteConfig === undefined ||
-      currentConfig === undefined
-    ) {
+    const activeRuntime = runtime;
+    if (activeRuntime === undefined) {
       return Promise.reject(
         new Config.PreviewConfigError({
           detail:
@@ -97,75 +89,72 @@ export const preview = (
         }),
       );
     }
-    const baseUrl = localBaseUrl(currentServer);
-    if (baseUrl === undefined) {
+    return activeRuntime.runPromise(
+      Effect.gen(function* () {
+        const controller = yield* PluginController.PluginController;
+        return yield* controller.generate(request);
+      }),
+    );
+  };
+
+  const prepareCli = (): Promise<void> => {
+    if (closed) {
       return Promise.reject(
         new Config.PreviewConfigError({
-          detail: "The Vite server has no reachable local URL.",
+          detail: "The preview plugin is closed.",
         }),
       );
     }
-
-    const filters =
-      request.paths === undefined ? undefined : [...request.paths];
-    const program = Effect.gen(function* () {
-      const renderer = yield* Renderer.Renderer;
-      return yield* renderer.renderProject({
-        root: currentViteConfig.root,
-        baseUrl,
-        config: currentConfig,
-        ...(filters === undefined ? {} : { filters }),
-      });
-    });
-    return runtime.runPromise(generationSemaphore.withPermit(program));
+    const activeRuntime = runtime;
+    if (activeRuntime === undefined) {
+      return Promise.reject(
+        new Config.PreviewConfigError({
+          detail:
+            "The preview plugin is not attached to a running Vite server.",
+        }),
+      );
+    }
+    return activeRuntime.runPromise(
+      Effect.gen(function* () {
+        const controller = yield* PluginController.PluginController;
+        yield* controller.prepareCli;
+      }),
+    );
   };
 
-  const reportSummary = (
-    summary: Generation.GenerationSummary,
+  const scheduleGeneration = (
+    viteServer: ViteDevServer,
+    paths?: ReadonlyArray<string>,
   ): void => {
-    for (const artifact of summary.artifacts) {
-      viteConfig?.logger.info(`[preview] generated ${artifact.pngPath}`);
-    }
-    for (const failure of summary.failures) {
-      viteConfig?.logger.error(`[preview] ${failure.message}`);
-    }
-  };
-
-  const scheduleGeneration = (paths?: ReadonlyArray<string>): void => {
-    if (closed || viteConfig?.mode === "preview-cli") return;
-    if (paths === undefined) {
-      generateAllPending = true;
-      pendingPaths.clear();
-    } else if (!generateAllPending) {
-      for (const path of paths) pendingPaths.add(path);
-    }
-    if (timer !== undefined) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      const request =
-        generateAllPending || pendingPaths.size === 0
-          ? {}
-          : { paths: [...pendingPaths] };
-      generateAllPending = false;
-      pendingPaths.clear();
-      void generate(request)
-        .then(reportSummary)
-        .catch((error: unknown) => {
-          viteConfig?.logger.error(`[preview] ${formatUnknownError(error)}`);
-        });
-    }, 100);
+    const activeRuntime = runtime;
+    if (activeRuntime === undefined) return;
+    void activeRuntime
+      .runPromise(
+        Effect.gen(function* () {
+          const controller = yield* PluginController.PluginController;
+          yield* controller.schedule(paths);
+        }),
+      )
+      .catch((error: unknown) => {
+        viteServer.config.logger.error(
+          `[preview] ${formatUnknownError(error)}`,
+        );
+      });
   };
 
   const closePlugin = (): Promise<void> => {
     if (closePromise !== undefined) return closePromise;
+    const activeRuntime = runtime;
+    if (activeRuntime === undefined) return Promise.resolve();
     closed = true;
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
-    closePromise = runtime
-      .runPromise(generationSemaphore.withPermit(Effect.void))
-      .then(() => runtime.dispose());
+    closePromise = activeRuntime
+      .runPromise(
+        Effect.gen(function* () {
+          const controller = yield* PluginController.PluginController;
+          yield* controller.shutdown;
+        }),
+      )
+      .finally(() => activeRuntime.dispose());
     return closePromise;
   };
 
@@ -188,45 +177,92 @@ export const preview = (
     return [...affected];
   };
 
-  const plugin: PreviewVitePlugin = {
-    name: "@nmnmcc/preview",
+  const plugin: Plugin = {
+    name: PluginControl.PluginName,
     enforce: "post",
-    previewApi: { generate },
-    config() {
+    config(_config, environment) {
+      command = environment.command;
+      if (environment.command !== "serve") return undefined;
       return {
         optimizeDeps: {
           exclude: ["@nmnmcc/preview"],
         },
       };
     },
+    options: {
+      order: "post",
+      handler(inputOptions) {
+        if (command !== "build") return null;
+        const dropLabels = inputOptions.transform?.dropLabels ?? [];
+        if (dropLabels.includes(PreviewLabel)) return null;
+        return {
+          ...inputOptions,
+          transform: {
+            ...inputOptions.transform,
+            dropLabels: [...dropLabels, PreviewLabel],
+          },
+        };
+      },
+    },
     configResolved(resolved) {
-      viteConfig = resolved;
-      return runtime.runPromise(
+      if (resolved.command !== "serve") return undefined;
+      return getRuntime().runPromise(
         Effect.gen(function* () {
-          config = yield* Config.resolvePreviewOptions(options);
+          const controller = yield* PluginController.PluginController;
+          yield* controller.configure({
+            root: resolved.root,
+            mode: resolved.mode,
+            info: (message) => resolved.logger.info(message),
+            error: (message) => resolved.logger.error(message),
+          });
         }),
       );
     },
-    resolveId(id) {
-      if (id !== runnerModuleId) return undefined;
-      return runnerModulePath;
+    generateBundle: {
+      order: "post",
+      handler(_outputOptions, bundle) {
+        if (!check) return;
+        const matches = findApplicationPreviewCode(
+          bundle,
+          (code) => this.parse(code),
+        );
+        if (matches.length > 0) {
+          this.error(
+            formatProductionCodeError(this.environment.name, matches),
+          );
+        }
+      },
     },
-    configureServer(viteServer) {
-      server = viteServer;
-      viteServer.watcher.unwatch("**/.preview/**");
+    resolveId(id) {
+      if (id !== RunnerModuleId) return undefined;
+      return RunnerModulePath;
+    },
+    async configureServer(viteServer) {
+      const activeRuntime = getRuntime();
+      await activeRuntime.runPromise(
+        Effect.gen(function* () {
+          const controller = yield* PluginController.PluginController;
+          yield* controller.attach({
+            baseUrl: () => localBaseUrl(viteServer),
+            unwatch: (glob) => {
+              viteServer.watcher.unwatch(glob);
+            },
+          });
+        }),
+      );
       viteServer.middlewares.use((request, response, next) => {
         const requestUrl =
           request.url === undefined
             ? undefined
             : new URL(request.url, "http://preview.local");
-        if (requestUrl?.pathname !== Protocol.previewRoute) {
+        if (requestUrl?.pathname !== Protocol.PreviewRoute) {
           next();
           return;
         }
         void viteServer
           .transformIndexHtml(
-            request.url ?? Protocol.previewRoute,
-            htmlTemplate,
+            request.url ?? Protocol.PreviewRoute,
+            HtmlTemplate,
           )
           .then((html) => {
             response.statusCode = 200;
@@ -237,21 +273,33 @@ export const preview = (
       });
 
       if (viteServer.httpServer !== null) {
-        viteServer.httpServer.once("listening", scheduleGeneration);
+        viteServer.httpServer.once("listening", () => {
+          scheduleGeneration(viteServer);
+        });
       }
     },
-    handleHotUpdate(context) {
-      if (context.file.split(/[\\/]/).includes(".preview")) {
-        return [];
-      }
-      const affected = affectedPreviewFiles(context.modules);
-      scheduleGeneration(affected.length === 0 ? undefined : affected);
-      return undefined;
+    async handleHotUpdate(context) {
+      const activeRuntime = runtime;
+      if (activeRuntime === undefined) return undefined;
+      return activeRuntime.runPromise(
+        Effect.gen(function* () {
+          const controller = yield* PluginController.PluginController;
+          if (yield* controller.isOutputPath(context.file)) {
+            const noModules: Array<ModuleNode> = [];
+            return noModules;
+          }
+          const affected = affectedPreviewFiles(context.modules);
+          yield* controller.schedule(
+            affected.length === 0 ? undefined : affected,
+          );
+          return undefined;
+        }),
+      );
     },
     closeBundle() {
       return closePlugin();
     },
   };
 
-  return plugin;
+  return PluginControl.attach(plugin, { generate, prepareCli });
 };

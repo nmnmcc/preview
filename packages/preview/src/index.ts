@@ -1,14 +1,23 @@
 /**
- * Public APIs for preview definitions, matrices, generation results, and the
- * Vite plugin.
+ * Public APIs for preview definitions, matrices, and the Vite plugin.
  *
  * @packageDocumentation
  */
 
 /**
- * Makes an immutable preview definition.
+ * Makes an isolated component preview definition.
  */
-export { preview } from "./Preview";
+export { preview } from "./internal/definition";
+
+export type {
+  ComponentPreviewDefinition,
+  PreviewDefinition,
+  PreviewMount,
+  PreviewMountContext,
+  PreviewReady,
+  PreviewOptions,
+  PreviewUnmount,
+} from "./internal/definition";
 
 /**
  * Makes or extends a reusable preview template.
@@ -26,11 +35,6 @@ export { matrix } from "./PreviewMatrix";
 export * as Preview from "./Preview";
 
 /**
- * APIs for preview generation results.
- */
-export * as PreviewGeneration from "./PreviewGeneration";
-
-/**
  * APIs for preview matrices.
  */
 export * as PreviewMatrix from "./PreviewMatrix";
@@ -39,6 +43,11 @@ export * as PreviewMatrix from "./PreviewMatrix";
  * APIs for the preview Vite plugin.
  */
 export * as PreviewPlugin from "./PreviewPlugin";
+
+/**
+ * Stable viewport size presets for common responsive design systems.
+ */
+export * as ViewportPresets from "./Viewports";
 
 /**
  * Makes the preview Vite plugin.

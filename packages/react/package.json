@@ -1,12 +1,12 @@
 {
   "name": "@nmnmcc/preview-react",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Define React previews for @nmnmcc/preview",
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": false,
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=24"
   },
   "files": [
     "dist",

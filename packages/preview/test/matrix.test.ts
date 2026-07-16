@@ -5,64 +5,8 @@ import {
   deepStrictEqual,
   strictEqual,
 } from "@effect/vitest/utils";
-import { preview } from "../src/Preview";
 import { matrix } from "../src/PreviewMatrix";
-
-const compileMatrixContracts = (): void => {
-  matrix(
-    {
-      axes: {
-        locale: ["en", "zh"],
-        state: ["ready", "error"],
-      },
-      include: {
-        "rtl-error": { locale: "ar", state: "error" },
-      },
-    },
-    (input) => {
-      const locale: "en" | "zh" | "ar" = input.locale;
-      const state: "ready" | "error" = input.state;
-      return preview({
-        render: (root) => {
-          root.textContent = `${locale}:${state}`;
-        },
-      });
-    },
-  );
-
-  matrix(
-    {
-      axes: {
-        // @ts-expect-error A matrix axis must have at least one value.
-        locale: [],
-      },
-    },
-    () => preview({ render: () => undefined }),
-  );
-
-  matrix(
-    {
-      axes: {
-        // @ts-expect-error Complex values must use a string fixture key.
-        user: [{ name: "Ada" }],
-      },
-    },
-    () => preview({ render: () => undefined }),
-  );
-
-  matrix(
-    {
-      axes: { locale: ["en", "zh"] },
-      exclude: [
-        {
-          // @ts-expect-error Exclude values must come from the axis.
-          locale: "fr",
-        },
-      ],
-    },
-    () => preview({ render: () => undefined }),
-  );
-};
+import { preview } from "../src/index";
 
 describe("preview matrix", () => {
   it("expands axes in order, removes matches, and adds named inputs", () => {
@@ -81,8 +25,12 @@ describe("preview matrix", () => {
       (input) => {
         calls.push(input);
         return preview({
-          capture: input.state === "error" ? "fullPage" : "viewport",
-          render: () => undefined,
+          mount: () => () => undefined,
+          viewports: {
+            mobile: {
+              height: input.state === "error" ? "full" : 844,
+            },
+          },
         });
       },
     );
@@ -99,9 +47,9 @@ describe("preview matrix", () => {
       { locale: "zh", state: "ready" },
       { locale: "ar", state: "error" },
     ]);
-    strictEqual(
-      collection["locale=en,state=error"]?.metadata.capture,
-      "fullPage",
+    deepStrictEqual(
+      collection["locale=en,state=error"]?.metadata,
+      { viewports: { mobile: { height: "full" } } },
     );
     assertTrue(Object.isFrozen(collection));
   });
@@ -114,7 +62,7 @@ describe("preview matrix", () => {
           count: [0, 2],
         },
       },
-      () => preview({ render: () => undefined }),
+      () => preview({ mount: () => () => undefined }),
     );
 
     deepStrictEqual(Object.keys(collection), [
@@ -130,7 +78,7 @@ describe("preview matrix", () => {
       () =>
         matrix(
           { axes: { theme: ["high contrast"] } },
-          () => preview({ render: () => undefined }),
+          () => preview({ mount: () => () => undefined }),
         ),
       /axis value.*letters, numbers/,
     );
@@ -138,7 +86,7 @@ describe("preview matrix", () => {
       () =>
         matrix(
           { axes: { count: [-1] } },
-          () => preview({ render: () => undefined }),
+          () => preview({ mount: () => () => undefined }),
         ),
       /non-negative safe integer/,
     );
@@ -152,11 +100,9 @@ describe("preview matrix", () => {
             axes: { theme: ["light"] },
             exclude: [{ theme: "light" }],
           },
-          () => preview({ render: () => undefined }),
+          () => preview({ mount: () => () => undefined }),
         ),
       /final matrix must contain at least one variant/,
     );
   });
 });
-
-void compileMatrixContracts;

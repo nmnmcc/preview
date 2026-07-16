@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "yarn@4.17.1",
+  "engines": {
+    "node": ">=24"
+  },
   "workspaces": [
     "packages/*",
     "examples/*"
@@ -10,10 +13,11 @@
   "scripts": {
     "postinstall": "effect-tsgo patch",
     "build": "tsdown",
-    "typecheck": "yarn build && yarn workspace @nmnmcc/preview typecheck && yarn workspace @nmnmcc/preview-cli typecheck && yarn workspace @nmnmcc/preview-react typecheck && yarn workspace @nmnmcc/preview-vue typecheck && yarn workspace @preview/example-react typecheck",
-    "test": "yarn workspace @nmnmcc/preview test && yarn workspace @nmnmcc/preview-cli test",
-    "test:e2e": "yarn build && yarn workspace @preview/example-react generate && node tools/verify-example.mjs",
-    "example:generate": "yarn build && yarn workspace @preview/example-react generate"
+    "typecheck": "yarn build && yarn workspace @nmnmcc/preview typecheck && yarn workspace @nmnmcc/preview-react typecheck && yarn workspace @nmnmcc/preview-svelte typecheck && yarn workspace @nmnmcc/preview-vue typecheck && yarn workspace @preview/example-react typecheck && yarn workspace @preview/example-react-router typecheck && yarn workspace @preview/example-vue typecheck && yarn workspace @preview/example-svelte typecheck && yarn workspace @preview/example-sveltekit typecheck && yarn workspace @preview/example-vinext-app typecheck && yarn workspace @preview/example-vinext-pages typecheck",
+    "test": "yarn workspace @nmnmcc/preview test && yarn workspace @nmnmcc/preview-vue test && yarn workspace @nmnmcc/preview-svelte test",
+    "test:e2e": "yarn examples:generate && vitest run --config vitest.e2e.config.ts",
+    "examples:generate": "yarn build && yarn workspace @preview/example-react generate && yarn workspace @preview/example-react-router generate && yarn workspace @preview/example-vue generate && yarn workspace @preview/example-svelte generate && yarn workspace @preview/example-sveltekit generate && yarn workspace @preview/example-vinext-app generate && yarn workspace @preview/example-vinext-pages generate",
+    "example:generate": "yarn examples:generate"
   },
   "devDependencies": {
     "@arethetypeswrong/core": "^0.18.5",

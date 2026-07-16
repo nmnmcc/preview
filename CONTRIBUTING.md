@@ -32,17 +32,66 @@ already provides the browser.
 ## Repository layout
 
 - `packages/preview` holds the `@nmnmcc/preview` package.
-- `packages/cli` holds the `@nmnmcc/preview-cli` command.
 - `packages/react` holds the React package.
+- `packages/svelte` holds the Svelte package.
 - `packages/vue` holds the Vue package.
-- `examples/react` is the end-to-end test project.
+- `examples` holds the end-to-end test projects.
+- `test/e2e` holds the Vitest checks for generated example files.
 - `references` holds the fixed Vite and Effect source trees.
-- `tools/verify-example.mjs` checks the generated PNG files.
 
 Public source files in `packages/preview/src` document and re-export the API.
 Keep their implementation in `packages/preview/src/internal`. Keep CLI
-implementation in `packages/cli/src/internal`. The CLI `main.ts` file is an
-entry point that runs the command. It is not a library index.
+implementation in `packages/preview/src/internal/cli`. The CLI `main.ts` file
+is an entry point that runs the command. It is not a library index.
+
+Keep modules that run only in a browser in
+`packages/preview/src/internal/browser`. Keep wire schemas that are shared by
+the browser and Node in `packages/preview/src/internal`. Put each Effect
+service in the nearest `services` directory. This rule also applies below the
+`browser` and `cli` directories. Keep Node Playwright services in
+`packages/preview/src/internal/services`.
+
+Keep browser and CLI entry points small. Each `main.ts` runs a composed
+`program` with its platform runtime. It must not act as a library index.
+
+## Public API design
+
+The public source files, TypeScript declarations, and package manifest are the
+source of truth for the public API. Keep the root entry small. It gives common
+functions such as `preview`, `template`, and `matrix` direct exports. It groups
+the other APIs by purpose. Keep the default export for the Vite plugin.
+
+Keep each subpath focused:
+
+- The browser entry has only browser-safe preview and matrix APIs.
+- The Application entry has `application`, `ready`, and their types.
+- The viewport entry has the fixed, readonly preset groups.
+- The internal runner entry is private to the Vite plugin.
+
+Keep Component and Application targets distinct. A Component target has a
+mount function. An Application target has a location. Public constructors are
+the supported way to make either definition. A template must keep the target
+type returned by its base function.
+
+Keep matrix rules in its public types and runtime checks. Each axis is
+non-empty. Axis values use strings, booleans, or non-negative safe integers so
+artifact names stay stable. An `exclude` value comes from its axis. A named
+`include` may add a new typed input.
+
+Keep viewport group names and preset names exact. Both groups and presets are
+readonly. Change an existing preset only in a breaking release.
+
+Keep the package's Effect dependency and peer dependency on the same exact
+version. Keep the CLI binary entry at `./dist/main.mjs`.
+
+## Naming
+
+- Use PascalCase for module constants that define fixed rules or default
+  values, such as patterns, protocol keys, and default settings.
+- Do not force PascalCase for other values. Follow normal TypeScript and
+  framework conventions. Use PascalCase for types, classes, components, and
+  schemas that act as type constructors. Use camelCase for functions, methods,
+  effects, flags, test fixtures, and ordinary runtime values.
 
 ## Effect
 
@@ -53,6 +102,8 @@ Effect code.
 Look for an Effect feature before you make a local replacement. Use Effect for
 typed errors, Schema checks, services, layers, resource scopes, concurrency,
 file and path access, runtimes, and test control when those tools fit the work.
+Use Schema when an unknown object shape needs a runtime check. Do not write
+local object type guards.
 
 The main Effect boundaries are:
 
@@ -63,14 +114,37 @@ The main Effect boundaries are:
 - The capture runner uses
   `@effect/platform-browser/BrowserRuntime`, Effect Schema, and Effect
   interruption in the browser.
+- The Application entry uses Effect Schema for browser state checks. It stays
+  safe in browser and server code and does not import Vite, Playwright, or the
+  Effect Node platform.
 - Effect tests use `@effect/vitest`. Use `Deferred` or another Effect control
   instead of a time-based wait for concurrent tests.
 
-Keep the Node and browser platforms separate. The browser entry may use
-Effect. The separate capture runner may use Effect Browser Platform. Neither
-entry may import Vite, Playwright, or Node platform code. The capture runner is
-a real TypeScript module. Do not make its source with string interpolation.
-The `@nmnmcc/preview/internal/runner` export is private to the Vite plugin.
+Keep the Node and browser platforms separate. The browser and Application
+entries use browser-safe Effect modules. The separate capture runner uses the
+Effect Browser Platform. None of these browser-facing entries may import Vite,
+Playwright, or Node platform code. The capture runner is a real TypeScript
+module. Do not make its source with string interpolation. The
+`@nmnmcc/preview/internal/runner` export is private to the Vite plugin.
+
+## Tests
+
+Tests must run code and check observable behavior. A unit test may check a
+returned value, error, state change, or effect. An integration test may check a
+real build, browser session, file operation, or generated artifact.
+
+Do not add static tests that only:
+
+- make TypeScript accept or reject sample code;
+- use `@ts-expect-error` or an unused `compile*` function as a test;
+- list module exports or public type names;
+- compare package metadata that the manifest already states; or
+- read repository source text or paths to enforce a naming, layout, or design
+  rule.
+
+Put maintenance and design rules in this file. Put type rules in the public
+declarations that implement them. Let `yarn typecheck` check those declarations.
+Do not copy either kind of rule into test code.
 
 ## Source references
 
@@ -94,8 +168,8 @@ yarn test:e2e
 ```
 
 `yarn test` runs the unit tests. `yarn typecheck` builds the packages and checks
-all workspace types. `yarn test:e2e` builds the packages, makes the React
-example PNG files, and checks them.
+all workspace types. `yarn test:e2e` builds the packages, makes all example PNG
+files, and checks them with Vitest.
 
 ## Documentation language
 

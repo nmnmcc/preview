@@ -1,9 +1,12 @@
+import * as Schema from "effect/Schema"
 import { defineConfig } from "tsdown"
 
-interface DevelopmentEntry {
-  readonly development: string
-  readonly default: string
-}
+const DevelopmentEntry = Schema.Struct({
+  development: Schema.String,
+  default: Schema.String
+})
+
+interface DevelopmentEntry extends Schema.Schema.Type<typeof DevelopmentEntry> {}
 
 const declarationPath = (entry: string): string => {
   if (!entry.endsWith(".mjs")) {
@@ -17,11 +20,7 @@ const publishedEntry = (entry: string) => ({
   default: entry
 })
 
-const isDevelopmentEntry = (entry: unknown): entry is DevelopmentEntry =>
-  typeof entry === "object" &&
-  entry !== null &&
-  typeof Reflect.get(entry, "development") === "string" &&
-  typeof Reflect.get(entry, "default") === "string"
+const isDevelopmentEntry = Schema.is(DevelopmentEntry)
 
 const developmentEntry = (entry: DevelopmentEntry) => ({
   development: entry.development,
@@ -32,8 +31,11 @@ const developmentEntry = (entry: DevelopmentEntry) => ({
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    application: "src/Application.ts",
     browser: "src/browser.ts",
-    runner: "src/runner.ts"
+    main: "src/internal/cli/main.ts",
+    runner: "src/internal/browser/main.ts",
+    viewports: "src/Viewports.ts",
   },
   platform: "node",
   deps: {
@@ -46,6 +48,8 @@ export default defineConfig({
     ]
   },
   exports: {
+    bin: false,
+    exclude: ["main"],
     customExports(exports, { isPublish }) {
       const browserEntry = exports["./browser"]
       const defaultEntry = exports["."]

@@ -1,0 +1,26 @@
+{
+  "name": "@preview/example-sveltekit",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "generate": "preview",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@nmnmcc/preview": "workspace:*",
+    "@nmnmcc/preview-svelte": "workspace:*",
+    "@sveltejs/kit": "2.69.3",
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "playwright": "1.61.1",
+    "svelte": "5.56.5",
+    "vite": "8.1.4"
+  },
+  "devDependencies": {
+    "svelte-check": "4.7.2",
+    "typescript": "6.0.3"
+  }
+}

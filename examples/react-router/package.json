@@ -1,0 +1,30 @@
+{
+  "name": "@preview/example-react-router",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "react-router dev",
+    "generate": "preview",
+    "typecheck": "react-router typegen && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nmnmcc/preview": "workspace:*",
+    "@nmnmcc/preview-react": "workspace:*",
+    "@react-router/node": "8.2.0",
+    "isbot": "^5",
+    "playwright": "1.61.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router": "8.2.0",
+    "vite": "8.1.4"
+  },
+  "devDependencies": {
+    "@react-router/dev": "8.2.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3"
+  }
+}

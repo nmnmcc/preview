@@ -4,7 +4,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import type { ResolvedPreviewOptions } from "../../config";
+import * as Artifacts from "../Artifacts";
+import * as Config from "../Config";
 
 export class PreviewDiscoveryError extends Schema.TaggedErrorClass<PreviewDiscoveryError>(
   "@nmnmcc/preview/PreviewDiscoveryError",
@@ -22,7 +23,7 @@ const hasGlobMagic = (value: string): boolean => /[*?{}[\]]/.test(value);
 export interface Interface {
   readonly discover: (
     root: string,
-    config: ResolvedPreviewOptions,
+    config: Config.ResolvedGenerationOptions,
     filters?: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlyArray<string>, PreviewDiscoveryError>;
 }
@@ -36,24 +37,45 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const artifacts = yield* Artifacts.Artifacts;
 
     const discover = Effect.fn("PreviewDiscovery.discover")(function* (
       root: string,
-      config: ResolvedPreviewOptions,
+      config: Config.ResolvedGenerationOptions,
       filters: ReadonlyArray<string> = [],
     ) {
+      const ownedDirectories = yield* artifacts
+        .ownedDirectories(root, config.cleanOutputs)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new PreviewDiscoveryError({
+                detail: `Could not inspect preview output below ${root}.`,
+                cause,
+              }),
+          ),
+        );
       const files = yield* Effect.forEach(
         config.include,
         (pattern) =>
           fs.glob(pattern, {
             root,
-            exclude: ["**/.preview/**", "**/node_modules/**"],
+            exclude: [...config.exclude, "**/node_modules/**"],
           }),
         { concurrency: "unbounded" },
       ).pipe(
-        Effect.map((groups) => [
-          ...new Set(groups.flat().map((file) => path.resolve(root, file))),
-        ]),
+        Effect.map((groups) =>
+          [
+            ...new Set(
+              groups.flat().map((file) => path.resolve(root, file)),
+            ),
+          ].filter(
+            (file) =>
+              ![...ownedDirectories].some((directory) =>
+                artifacts.isPathInDirectory(file, directory),
+              ),
+          ),
+        ),
         Effect.mapError(
           (cause) =>
             new PreviewDiscoveryError({

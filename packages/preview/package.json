@@ -1,12 +1,15 @@
 {
   "name": "@nmnmcc/preview",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Render Vite preview modules to PNG files",
   "type": "module",
   "license": "Apache-2.0",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/main.mjs",
+    "./dist/runner.mjs"
+  ],
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=24"
   },
   "files": [
     "dist",
@@ -14,6 +17,7 @@
     "README.md",
     "LICENSE"
   ],
+  "bin": "./dist/main.mjs",
   "publishConfig": {
     "access": "public",
     "exports": {
@@ -25,6 +29,8 @@
         "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
       },
+      "./application": "./dist/application.mjs",
+      "./viewports": "./dist/viewports.mjs",
       "./package.json": "./package.json",
       "./internal/runner": {
         "types": "./dist/runner.d.mts",
@@ -43,6 +49,7 @@
     "effect": "4.0.0-beta.98"
   },
   "peerDependencies": {
+    "effect": "4.0.0-beta.98",
     "playwright": "^1.61.0",
     "vite": "^8.0.0"
   },
@@ -64,9 +71,17 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
+    "./application": {
+      "development": "./src/Application.ts",
+      "default": "./dist/application.mjs"
+    },
+    "./viewports": {
+      "development": "./src/Viewports.ts",
+      "default": "./dist/viewports.mjs"
+    },
     "./package.json": "./package.json",
     "./internal/runner": {
-      "development": "./src/runner.ts",
+      "development": "./src/internal/browser/main.ts",
       "types": "./dist/runner.d.mts",
       "default": "./dist/runner.mjs"
     }

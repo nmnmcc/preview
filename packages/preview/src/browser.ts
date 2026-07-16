@@ -5,9 +5,19 @@
  */
 
 /**
- * Makes an immutable preview definition.
+ * Makes an isolated component preview definition.
  */
-export { preview } from "./Preview";
+export { preview } from "./internal/definition";
+
+export type {
+  ComponentPreviewDefinition,
+  PreviewDefinition,
+  PreviewMount,
+  PreviewMountContext,
+  PreviewReady,
+  PreviewOptions,
+  PreviewUnmount,
+} from "./internal/definition";
 
 /**
  * Makes or extends a reusable preview template.

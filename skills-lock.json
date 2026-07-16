@@ -43,6 +43,12 @@
       "skillPath": "skills/study/SKILL.md",
       "computedHash": "bd75f8f8b32c9ea830abc5b439319655829974485c51e6a48796e039e1374f89"
     },
+    "testing": {
+      "source": "nmnmcc/skills",
+      "sourceType": "github",
+      "skillPath": "skills/testing/SKILL.md",
+      "computedHash": "e97d933ab068f0927a59b0d7efbc857428de4937986f8583274da36d2f460ef5"
+    },
     "typesafe": {
       "source": "nmnmcc/skills",
       "sourceType": "github",

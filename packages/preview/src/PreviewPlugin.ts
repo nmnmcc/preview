@@ -1,22 +1,70 @@
-/**
- * Limits one generation run to the given preview paths or glob patterns.
- */
-export type { GenerateRequest } from "./internal/plugin";
+import type {
+  BrowserContextOptions,
+  LaunchOptions,
+  PageScreenshotOptions,
+} from "playwright";
+import type { PreviewViewport } from "./internal/preview";
 
 /**
- * The generation API exposed by the Vite plugin.
+ * Playwright settings used by Preview capture.
  */
-export type { PreviewPluginApi } from "./internal/plugin";
-
-/**
- * The Vite plugin type with its preview generation API.
- */
-export type { PreviewVitePlugin } from "./internal/plugin";
+export interface PreviewPlaywrightOptions {
+  readonly launch?: Readonly<LaunchOptions>;
+  readonly context?: Readonly<
+    Omit<
+      BrowserContextOptions,
+      | "deviceScaleFactor"
+      | "javaScriptEnabled"
+      | "offline"
+      | "serviceWorkers"
+      | "viewport"
+    >
+  >;
+  readonly screenshot?: Readonly<
+    Pick<
+      PageScreenshotOptions,
+      | "animations"
+      | "caret"
+      | "omitBackground"
+      | "scale"
+      | "style"
+      | "timeout"
+    >
+  >;
+}
 
 /**
  * The settings accepted by the preview Vite plugin.
  */
-export type { PreviewPluginOptions } from "./internal/config";
+export interface PreviewPluginOptions {
+  readonly files?: {
+    readonly include?: string | ReadonlyArray<string>;
+    readonly exclude?: string | ReadonlyArray<string>;
+  };
+  readonly capture: {
+    readonly viewports: Readonly<Record<string, PreviewViewport>>;
+    readonly timeoutMs?: number;
+    readonly playwright?: PreviewPlaywrightOptions;
+  };
+  readonly artifacts?: {
+    readonly output?: string;
+    readonly clean?: boolean;
+    readonly version?: {
+      /**
+       * The number of real versions to keep for each artifact.
+       */
+      readonly retain: number;
+    };
+  };
+  readonly build?: {
+    /**
+     * Checks final build chunks for Application Preview code.
+     *
+     * @default true
+     */
+    readonly check?: boolean;
+  };
+}
 
 /**
  * Makes the preview Vite plugin.

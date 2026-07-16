@@ -7,13 +7,14 @@ import {
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import type { PreviewDone } from "../src/Preview";
-import { preview } from "../src/Preview";
+import { application } from "../src/Application";
+import { preview, type PreviewReady } from "../src/index";
 import {
   type PreviewAction,
-  previewStateKey,
+  PreviewDisposeKey,
+  PreviewStateKey,
 } from "../src/internal/protocol";
-import { runPreviewEffect } from "../src/runner";
+import { program } from "../src/internal/browser/program";
 
 const definitionKey = "__NMM_PREVIEW_TEST_DEFINITION__";
 let moduleId = 0;
@@ -32,6 +33,7 @@ const setRunnerEnvironment = (
   request: RunnerRequest = {},
 ): void => {
   Reflect.set(globalThis, definitionKey, definition);
+  Reflect.deleteProperty(globalThis, PreviewDisposeKey);
   const previewModule = dataModule(
     `export default globalThis[${JSON.stringify(definitionKey)}]`,
   );
@@ -62,7 +64,7 @@ const run = (
   request?: RunnerRequest,
 ): Promise<void> => {
   setRunnerEnvironment(definition, root, request);
-  return Effect.runPromise(runPreviewEffect);
+  return Effect.runPromise(program);
 };
 
 const requireFunction = <Arguments extends ReadonlyArray<unknown>>(
@@ -72,95 +74,128 @@ const requireFunction = <Arguments extends ReadonlyArray<unknown>>(
   return value;
 };
 
+const disposePreview = async (): Promise<void> => {
+  const dispose: unknown = Reflect.get(globalThis, PreviewDisposeKey);
+  if (typeof dispose !== "function") {
+    throw new Error("The preview dispose function is missing.");
+  }
+  await dispose();
+};
+
 describe("preview browser runner", () => {
-  it("waits for both render and done, and treats done as idempotent", async () => {
+  it("waits for mount and ready, then disposes exactly once", async () => {
     const root = {};
-    let finishRender: (() => void) | undefined;
-    let done: PreviewDone | undefined;
-    let markRenderCalled: (() => void) | undefined;
-    const renderCalled = new Promise<void>((resolve) => {
-      markRenderCalled = resolve;
+    let finishMount: (() => void) | undefined;
+    let ready: PreviewReady | undefined;
+    let signal: AbortSignal | undefined;
+    let markMountCalled: (() => void) | undefined;
+    let unmountCalls = 0;
+    const mountCalled = new Promise<void>((resolve) => {
+      markMountCalled = resolve;
     });
     const definition = preview({
-      render: (receivedRoot, receivedDone) => {
-        strictEqual(receivedRoot, root);
-        done = receivedDone;
-        requireFunction(markRenderCalled)();
-        return new Promise<void>((resolve) => {
-          finishRender = resolve;
+      mount: (context) => {
+        strictEqual(context.root, root);
+        ready = context.ready;
+        signal = context.signal;
+        requireFunction(markMountCalled)();
+        return new Promise((resolve) => {
+          finishMount = () => {
+            resolve(() => {
+              unmountCalls += 1;
+            });
+          };
         });
       },
     });
 
     const running = run(definition, root);
-    await renderCalled;
-    deepStrictEqual(Reflect.get(globalThis, previewStateKey), {
+    await mountCalled;
+    deepStrictEqual(Reflect.get(globalThis, PreviewStateKey), {
       status: "loading",
     });
 
-    requireFunction(done)();
-    requireFunction(done)();
+    requireFunction(ready)();
+    requireFunction(ready)();
     strictEqual(
-      Reflect.get(Reflect.get(globalThis, previewStateKey), "status"),
+      Reflect.get(Reflect.get(globalThis, PreviewStateKey), "status"),
       "loading",
     );
 
-    requireFunction(finishRender)();
+    requireFunction(finishMount)();
     await running;
-    deepStrictEqual(Reflect.get(globalThis, previewStateKey), {
+    deepStrictEqual(Reflect.get(globalThis, PreviewStateKey), {
       status: "ready",
       result: { type: "render" },
     });
+
+    await disposePreview();
+    await disposePreview();
+    strictEqual(signal?.aborted, true);
+    strictEqual(unmountCalls, 1);
+    requireFunction(ready)();
+    strictEqual(unmountCalls, 1);
   });
 
-  it("probes every collection target without rendering", async () => {
-    let renderCalls = 0;
+  it("probes Sandbox and Application targets without mounting", async () => {
+    let mountCalls = 0;
     const collection = {
       "locale=en": preview({
-        capture: "fullPage",
-        render: () => {
-          renderCalls += 1;
+        mount: () => {
+          mountCalls += 1;
+          return () => undefined;
         },
+        viewports: { mobile: { height: "full" } },
       }),
-      "locale=zh": preview({
+      route: application({
+        location: "/projects/42",
         viewports: { mobile: true },
-        render: () => {
-          renderCalls += 1;
-        },
       }),
     };
 
     await run(collection, null, { action: "probe" });
 
-    strictEqual(renderCalls, 0);
-    deepStrictEqual(Reflect.get(globalThis, previewStateKey), {
+    strictEqual(mountCalls, 0);
+    deepStrictEqual(Reflect.get(globalThis, PreviewStateKey), {
       status: "ready",
       result: {
         type: "probe",
         targets: [
-          { variant: "locale=en", metadata: { capture: "fullPage" } },
           {
-            variant: "locale=zh",
+            variant: "locale=en",
+            metadata: {
+              viewports: { mobile: { height: "full" } },
+            },
+            target: { type: "sandbox" },
+          },
+          {
+            variant: "route",
             metadata: { viewports: { mobile: true } },
+            target: {
+              type: "application",
+              location: "/projects/42",
+            },
           },
         ],
       },
     });
   });
 
-  it("renders only the selected collection target", async () => {
+  it("mounts only the selected collection target", async () => {
     const calls: Array<string> = [];
     const collection = {
       ready: preview({
-        render: (_root, done) => {
+        mount: ({ ready }) => {
           calls.push("ready");
-          done();
+          ready();
+          return () => undefined;
         },
       }),
       error: preview({
-        render: (_root, done) => {
+        mount: ({ ready }) => {
           calls.push("error");
-          done();
+          ready();
+          return () => undefined;
         },
       }),
     };
@@ -168,20 +203,21 @@ describe("preview browser runner", () => {
     await run(collection, {}, { action: "render", variant: "error" });
 
     deepStrictEqual(calls, ["error"]);
-    deepStrictEqual(Reflect.get(globalThis, previewStateKey), {
+    deepStrictEqual(Reflect.get(globalThis, PreviewStateKey), {
       status: "ready",
       result: { type: "render" },
     });
+    await disposePreview();
   });
 
-  it("requires a collection target for rendering", async () => {
+  it("requires a collection target for mounting", async () => {
     await run(
-      { ready: preview({ render: () => undefined }) },
+      { ready: preview({ mount: () => () => undefined }) },
       {},
       { action: "render" },
     );
 
-    const state = Reflect.get(globalThis, previewStateKey);
+    const state = Reflect.get(globalThis, PreviewStateKey);
     strictEqual(Reflect.get(state, "status"), "error");
     assertInclude(
       String(Reflect.get(state, "error")),
@@ -189,20 +225,43 @@ describe("preview browser runner", () => {
     );
   });
 
-  it("reports render failures without waiting for done", async () => {
+  it("reports mount failures without waiting for ready", async () => {
     const definition = preview({
-      render: () => Promise.reject(new Error("render failed")),
+      mount: () => Promise.reject(new Error("mount failed")),
     });
 
     await run(definition, {});
-    const state = Reflect.get(globalThis, previewStateKey);
+    const state = Reflect.get(globalThis, PreviewStateKey);
     strictEqual(Reflect.get(state, "status"), "error");
-    assertInclude(String(Reflect.get(state, "error")), "render failed");
+    assertInclude(String(Reflect.get(state, "error")), "mount failed");
+  });
+
+  it("rejects a mount that does not return an unmount function", async () => {
+    const invalidMount = new Proxy(() => () => undefined, {
+      apply: () => undefined,
+    });
+    const definition = preview({
+      mount: invalidMount,
+    });
+
+    await run(definition, {});
+    const state = Reflect.get(globalThis, PreviewStateKey);
+    strictEqual(Reflect.get(state, "status"), "error");
+    assertInclude(
+      String(Reflect.get(state, "error")),
+      "must return an unmount function",
+    );
   });
 
   it("rejects a default export that was not made by preview", async () => {
-    await run({ render: () => undefined }, {});
-    const state = Reflect.get(globalThis, previewStateKey);
+    await run(
+      {
+        metadata: {},
+        target: { type: "sandbox", mount: () => () => undefined },
+      },
+      {},
+    );
+    const state = Reflect.get(globalThis, PreviewStateKey);
     strictEqual(Reflect.get(state, "status"), "error");
     assertInclude(
       String(Reflect.get(state, "error")),
@@ -216,8 +275,8 @@ describe("preview browser runner", () => {
       value: { search: "" },
     });
 
-    await Effect.runPromise(runPreviewEffect);
-    const state = Reflect.get(globalThis, previewStateKey);
+    await Effect.runPromise(program);
+    const state = Reflect.get(globalThis, PreviewStateKey);
     strictEqual(Reflect.get(state, "status"), "error");
     assertInclude(
       String(Reflect.get(state, "error")),
@@ -225,9 +284,9 @@ describe("preview browser runner", () => {
     );
   });
 
-  it("reports a missing preview root", async () => {
-    await run(preview({ render: () => undefined }), null);
-    const state = Reflect.get(globalThis, previewStateKey);
+  it("reports a missing Sandbox root", async () => {
+    await run(preview({ mount: () => () => undefined }), null);
+    const state = Reflect.get(globalThis, PreviewStateKey);
     strictEqual(Reflect.get(state, "status"), "error");
     assertInclude(
       String(Reflect.get(state, "error")),
@@ -235,23 +294,37 @@ describe("preview browser runner", () => {
     );
   });
 
-  it.effect("preserves interruption instead of reporting an error", () =>
-    Effect.gen(function* () {
-      const renderStarted = yield* Deferred.make<void>();
+  it("does not run an Application inside the Sandbox page", async () => {
+    await run(application({ location: "/projects/42" }), {});
+    const state = Reflect.get(globalThis, PreviewStateKey);
+    strictEqual(Reflect.get(state, "status"), "error");
+    assertInclude(
+      String(Reflect.get(state, "error")),
+      "cannot run inside the Sandbox page",
+    );
+  });
+
+  it.effect("preserves interruption and aborts the Sandbox mount", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const mountStarted = yield* Deferred.make<void>();
+      let signal: AbortSignal | undefined;
       const definition = preview({
-        render: () => {
-          Deferred.doneUnsafe(renderStarted, Effect.void);
+        mount: (context) => {
+          signal = context.signal;
+          Deferred.doneUnsafe(mountStarted, Effect.void);
+          return new Promise<never>(() => undefined);
         },
       });
       setRunnerEnvironment(definition, {}, { action: "render" });
 
-      const fiber = yield* Effect.forkChild(runPreviewEffect);
-      yield* Deferred.await(renderStarted);
+      const fiber = yield* Effect.forkChild(program);
+      yield* Deferred.await(mountStarted);
       yield* Fiber.interrupt(fiber);
 
-      deepStrictEqual(Reflect.get(globalThis, previewStateKey), {
+      deepStrictEqual(Reflect.get(globalThis, PreviewStateKey), {
         status: "loading",
       });
-    }),
+      strictEqual(signal?.aborted, true);
+    })),
   );
 });

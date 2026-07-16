@@ -1,9 +1,8 @@
-import type {
+import {
   PreviewCollection,
-  PreviewDefinition,
-  PreviewTemplate,
+  type PreviewDefinition,
+  type PreviewTemplate,
 } from "./preview";
-import { PreviewCollection as PreviewCollectionSchema } from "./preview";
 
 export type PreviewMatrixValue = string | number | boolean;
 
@@ -45,7 +44,7 @@ export interface PreviewMatrixConfig<
   readonly include?: Include;
 }
 
-const partPattern = /^[a-z0-9][a-z0-9_-]*$/i;
+const PartPattern = /^[a-z0-9][a-z0-9_-]*$/i;
 
 const fail = (detail: string): never => {
   throw new TypeError(`Invalid preview matrix: ${detail}`);
@@ -66,7 +65,7 @@ const valueName = (value: PreviewMatrixValue): string => {
     );
   }
   const name = String(value);
-  if (!partPattern.test(name)) {
+  if (!PartPattern.test(name)) {
     return fail(
       `axis value ${JSON.stringify(name)} must use only letters, numbers, "_", or "-".`,
     );
@@ -86,7 +85,7 @@ const validateAxes = (
   if (entries.length === 0) return fail("axes must not be empty.");
 
   for (const [axis, values] of entries) {
-    if (!partPattern.test(axis)) {
+    if (!PartPattern.test(axis)) {
       return fail(
         `axis name ${JSON.stringify(axis)} must use only letters, numbers, "_", or "-".`,
       );
@@ -146,7 +145,7 @@ const validateInclude = (
 ): void => {
   const axisNames = axes.map(([axis]) => axis);
   for (const [name, input] of Object.entries(include)) {
-    if (!partPattern.test(name)) {
+    if (!PartPattern.test(name)) {
       fail(
         `included variant name ${JSON.stringify(name)} must use only letters, numbers, "_", or "-".`,
       );
@@ -232,5 +231,5 @@ export const matrix = <
     return fail("the final matrix must contain at least one variant.");
   }
 
-  return Object.freeze(PreviewCollectionSchema.make(definitions));
+  return Object.freeze(PreviewCollection.make(definitions));
 };

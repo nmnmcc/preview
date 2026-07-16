@@ -1,10 +1,9 @@
 import { template } from "@nmnmcc/preview";
 import {
-  preview as reactPreview,
+  preview as react,
   type ReactPreviewOptions,
 } from "@nmnmcc/preview-react";
 import { createContext } from "react";
-import "./card.css";
 
 export type PreviewLocale = "en" | "zh";
 
@@ -23,11 +22,11 @@ export const preview = template(
     ...metadata
   }: AppPreviewOptions): ReactPreviewOptions => ({
     ...metadata,
-    render: ({ done }) => (
+    render: ({ ready }) => (
       <PreviewLocaleContext.Provider value={locale}>
-        {render({ done })}
+        {render({ ready })}
       </PreviewLocaleContext.Provider>
     ),
   }),
-  reactPreview,
+  react,
 );

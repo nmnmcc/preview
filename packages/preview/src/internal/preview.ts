@@ -1,121 +1,158 @@
 import * as Schema from "effect/Schema";
+import {
+  ApplicationDefinitionTypeId,
+  type PreviewDefinition as Definition,
+  PreviewDefinitionTypeId,
+  type PreviewMount as Mount,
+} from "./definition";
+import type {
+  PreviewMetadata as PreviewMetadataType,
+  PreviewViewport as PreviewViewportType,
+  PreviewViewportHeight as PreviewViewportHeightType,
+  PreviewViewportOverride as PreviewViewportOverrideType,
+} from "./preview-metadata";
 import * as SchemaRules from "./schema";
 
-export const CaptureMode = Schema.Literals(["viewport", "fullPage"]);
-export type CaptureMode = typeof CaptureMode.Type;
+export type PreviewMetadata = PreviewMetadataType;
 
-export const PreviewViewport = Schema.Struct({
-  width: SchemaRules.PositiveInteger,
-  height: SchemaRules.PositiveInteger,
-  deviceScaleFactor: Schema.optionalKey(SchemaRules.PositiveNumber),
-});
-export interface PreviewViewport
-  extends Schema.Schema.Type<typeof PreviewViewport> {}
+export type PreviewViewport = PreviewViewportType;
+
+export type PreviewViewportOverride = PreviewViewportOverrideType;
+
+export type PreviewViewportHeight = PreviewViewportHeightType;
+
+export type PreviewCollection = Readonly<Record<string, Definition>>;
+
+export type PreviewDefinition = Definition;
+
+export type PreviewExport = Definition | PreviewCollection;
+
+const FullPageHeightPrefix = "full-";
+const DefaultFullPageViewportHeight = 720;
+
+const FullPageViewportHeight = Schema.TemplateLiteral([
+  FullPageHeightPrefix,
+  SchemaRules.PositiveInteger,
+]);
+
+const PreviewViewportHeightSchema = Schema.Union([
+  SchemaRules.PositiveInteger,
+  Schema.Literal("full"),
+  FullPageViewportHeight,
+]);
+
+export const isFullPageViewportHeight = (
+  height: PreviewViewportHeight,
+): height is Exclude<PreviewViewportHeight, number> =>
+  typeof height === "string";
+
+export const viewportLayoutHeight = (
+  height: PreviewViewportHeight,
+): number =>
+  typeof height === "number"
+    ? height
+    : height === "full"
+      ? DefaultFullPageViewportHeight
+      : Number(height.slice(FullPageHeightPrefix.length));
+
+export const PreviewViewport = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    width: SchemaRules.PositiveInteger,
+    height: PreviewViewportHeightSchema,
+    deviceScaleFactor: Schema.optionalKey(SchemaRules.PositiveNumber),
+  }),
+) satisfies Schema.Codec<PreviewViewportType>;
 
 const PreviewViewportOverrideValue = Schema.Struct({
   width: Schema.optionalKey(SchemaRules.PositiveInteger),
-  height: Schema.optionalKey(SchemaRules.PositiveInteger),
+  height: Schema.optionalKey(PreviewViewportHeightSchema),
   deviceScaleFactor: Schema.optionalKey(SchemaRules.PositiveNumber),
 });
 
-export const PreviewViewportOverride = Schema.Union([
-  Schema.Literal(true),
-  PreviewViewportOverrideValue,
-]);
-export type PreviewViewportOverride = typeof PreviewViewportOverride.Type;
+export const PreviewViewportOverride = Schema.toStandardSchemaV1(
+  Schema.Union([Schema.Literal(true), PreviewViewportOverrideValue]),
+) satisfies Schema.Codec<PreviewViewportOverrideType>;
 
-export const PreviewMetadata = Schema.Struct({
-  viewports: Schema.optionalKey(
-    Schema.Record(SchemaRules.ViewportName, PreviewViewportOverride).check(
-      Schema.isMinProperties(1),
+export const PreviewMetadata = Schema.toStandardSchemaV1(
+  Schema.Struct({
+    viewports: Schema.optionalKey(
+      Schema.Record(
+        SchemaRules.ViewportName,
+        PreviewViewportOverride,
+      ).check(Schema.isMinProperties(1)),
     ),
-  ),
-  capture: Schema.optionalKey(CaptureMode),
+  }),
+) satisfies Schema.Codec<PreviewMetadataType>;
+
+const PreviewMount = Schema.declare<Mount>(
+  (input): input is Mount => typeof input === "function",
+);
+
+const ComponentTarget = Schema.Struct({
+  type: Schema.tag("sandbox"),
+  mount: PreviewMount,
 });
-export interface PreviewMetadata
-  extends Schema.Schema.Type<typeof PreviewMetadata> {}
 
-const PreviewDefinitionTypeId: unique symbol = Symbol.for(
-  "@nmnmcc/preview/PreviewDefinition",
-);
+const ApplicationTarget = Schema.Struct({
+  type: Schema.tag("application"),
+  location: Schema.NonEmptyString,
+});
 
-export type PreviewDone = () => void;
-
-export type PreviewRender = (
-  root: HTMLElement,
-  done: PreviewDone,
-) => void | Promise<void>;
-
-const PreviewRenderSchema = Schema.declare<PreviewRender>(
-  (input): input is PreviewRender => typeof input === "function",
-);
-
-const PreviewDefinitionStruct = Schema.Struct({
+const ComponentPreviewDefinition = Schema.Struct({
   [PreviewDefinitionTypeId]: Schema.Literal(true),
   metadata: PreviewMetadata,
-  render: PreviewRenderSchema,
+  target: ComponentTarget,
 });
 
-export interface PreviewDefinition {
-  readonly metadata: PreviewMetadata;
-  readonly render: PreviewRender;
-}
+const ApplicationDefinition = Schema.Struct({
+  [PreviewDefinitionTypeId]: Schema.Literal(true),
+  [ApplicationDefinitionTypeId]: Schema.Literal(true),
+  metadata: PreviewMetadata,
+  target: ApplicationTarget,
+});
+
+const PreviewDefinitionStruct = Schema.Union([
+  ComponentPreviewDefinition,
+  ApplicationDefinition,
+]);
 
 const isPreviewDefinition = Schema.is(PreviewDefinitionStruct);
 
-export const PreviewDefinition = Schema.declare<PreviewDefinition>(
-  (input): input is PreviewDefinition => isPreviewDefinition(input),
+export const PreviewDefinition = Schema.toStandardSchemaV1(
+  Schema.declare<Definition>(
+    (input): input is Definition => isPreviewDefinition(input),
+  ),
 );
 
-export const PreviewCollection = Schema.Record(
-  SchemaRules.PreviewVariantName,
-  PreviewDefinition,
-).check(Schema.isMinProperties(1));
-export type PreviewCollection = typeof PreviewCollection.Type;
+export const PreviewCollection = Schema.toStandardSchemaV1(
+  Schema.Record(
+    SchemaRules.PreviewVariantName,
+    PreviewDefinition,
+  ).check(Schema.isMinProperties(1)),
+) satisfies Schema.Codec<PreviewCollection>;
 
-export const PreviewExportSchema = Schema.Union([
-  PreviewDefinition,
-  PreviewCollection,
-]);
-export type PreviewExport = typeof PreviewExportSchema.Type;
+export const PreviewExport = Schema.toStandardSchemaV1(
+  Schema.Union([PreviewDefinition, PreviewCollection]),
+) satisfies Schema.Codec<PreviewExport>;
 
-export interface PreviewOptions extends PreviewMetadata {
-  readonly render: PreviewRender;
-}
+export {
+  application,
+  preview,
+  template,
+} from "./definition";
 
-export type PreviewTemplate<Input> = (input: Input) => PreviewDefinition;
-
-export const preview = (options: PreviewOptions): PreviewDefinition => {
-  const { render, ...inputMetadata } = options;
-  const definition = PreviewDefinitionStruct.make({
-    [PreviewDefinitionTypeId]: true,
-    metadata: inputMetadata,
-    render,
-  });
-  Object.freeze(definition.metadata);
-  return Object.freeze(definition);
-};
-
-export function template<Input>(
-  map: (input: Input) => PreviewOptions,
-): PreviewTemplate<Input>;
-export function template<Input, BaseInput>(
-  map: (input: Input) => NoInfer<BaseInput>,
-  base: PreviewTemplate<BaseInput>,
-): PreviewTemplate<Input>;
-export function template<Input, BaseInput>(
-  ...args:
-    | readonly [map: (input: Input) => PreviewOptions]
-    | readonly [
-        map: (input: Input) => BaseInput,
-        base: PreviewTemplate<BaseInput>,
-      ]
-): PreviewTemplate<Input> {
-  if (args.length === 1) {
-    const [map] = args;
-    return (input) => preview(map(input));
-  }
-
-  const [map, base] = args;
-  return (input) => base(map(input));
-}
+export type {
+  ApplicationLocation,
+  ApplicationDefinition,
+  ApplicationOptions,
+  ApplicationTarget,
+  ComponentPreviewDefinition,
+  ComponentTarget,
+  PreviewMount,
+  PreviewMountContext,
+  PreviewReady,
+  PreviewOptions,
+  PreviewTarget,
+  PreviewTemplate,
+  PreviewUnmount,
+} from "./definition";

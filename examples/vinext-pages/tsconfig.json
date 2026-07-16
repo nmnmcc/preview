@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": [
+      "node",
+      "vite/client"
+    ]
+  },
+  "include": [
+    ".next/types",
+    "next.config.ts",
+    "next-env.d.ts",
+    "pages",
+    "src",
+    "vite.config.ts"
+  ]
+}
