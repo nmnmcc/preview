@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -20,8 +21,7 @@ const Glob = Schema.Union([
   Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
 ]);
 
-const normalizeOutput = (value: string): string =>
-  value.replaceAll("\\", "/");
+const normalizeOutput = (value: string): string => value.replaceAll("\\", "/");
 
 const isOutput = (value: string): boolean => {
   const normalized = normalizeOutput(value);
@@ -35,8 +35,7 @@ const isOutput = (value: string): boolean => {
   return normalized
     .split("/")
     .every(
-      (segment) =>
-        segment.length > 0 && segment !== "." && segment !== "..",
+      (segment) => segment.length > 0 && segment !== "." && segment !== "..",
     );
 };
 
@@ -58,6 +57,7 @@ const PreviewPluginOptions = Schema.Struct({
       PreviewSchema.ViewportName,
       Preview.PreviewViewport,
     ).check(Schema.isMinProperties(1)),
+    concurrency: Schema.optionalKey(PreviewSchema.PositiveInteger),
     timeoutMs: Schema.optionalKey(PreviewSchema.PositiveInteger),
   }),
   artifacts: Schema.optionalKey(
@@ -79,14 +79,16 @@ export const ResolvedPreviewViewport = Schema.Struct({
   height: Preview.PreviewViewport.fields.height,
   deviceScaleFactor: PreviewSchema.PositiveNumber,
 });
-export interface ResolvedPreviewViewport
-  extends Schema.Schema.Type<typeof ResolvedPreviewViewport> {}
+export interface ResolvedPreviewViewport extends Schema.Schema.Type<
+  typeof ResolvedPreviewViewport
+> {}
 
 export const ResolvedPreviewMetadata = Schema.Struct({
   viewports: Schema.Array(ResolvedPreviewViewport).check(Schema.isMinLength(1)),
 });
-export interface ResolvedPreviewMetadata
-  extends Schema.Schema.Type<typeof ResolvedPreviewMetadata> {}
+export interface ResolvedPreviewMetadata extends Schema.Schema.Type<
+  typeof ResolvedPreviewMetadata
+> {}
 
 export const ResolvedPreviewOptions = Schema.Struct({
   viewports: Schema.Record(
@@ -97,13 +99,15 @@ export const ResolvedPreviewOptions = Schema.Struct({
   include: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
   exclude: Schema.Array(Schema.NonEmptyString),
   output: Output,
+  concurrency: PreviewSchema.PositiveInteger,
   timeoutMs: PreviewSchema.PositiveInteger,
   version: Schema.optionalKey(
     Schema.Struct({ retain: PreviewSchema.PositiveInteger }),
   ),
 });
-export interface ResolvedPreviewOptions
-  extends Schema.Schema.Type<typeof ResolvedPreviewOptions> {}
+export interface ResolvedPreviewOptions extends Schema.Schema.Type<
+  typeof ResolvedPreviewOptions
+> {}
 
 export interface ResolvedGenerationOptions extends ResolvedPreviewOptions {
   readonly cleanOutputs: ReadonlyArray<string>;
@@ -131,15 +135,12 @@ const configError = (scope: string) =>
 
 export const resolvePreviewOptions = Effect.fn("PreviewConfig.resolveOptions")(
   function* (input: unknown) {
-    const options = yield* Schema.decodeUnknownEffect(
-      PreviewPluginOptions,
-      { onExcessProperty: "error" },
-    )(input).pipe(configError("preview options"));
+    const options = yield* Schema.decodeUnknownEffect(PreviewPluginOptions, {
+      onExcessProperty: "error",
+    })(input).pipe(configError("preview options"));
 
     const viewports: Record<string, ResolvedPreviewViewport> = {};
-    for (const [name, viewport] of Object.entries(
-      options.capture.viewports,
-    )) {
+    for (const [name, viewport] of Object.entries(options.capture.viewports)) {
       viewports[name] = ResolvedPreviewViewport.make({
         name,
         width: viewport.width,
@@ -161,6 +162,7 @@ export const resolvePreviewOptions = Effect.fn("PreviewConfig.resolveOptions")(
             ? [exclude]
             : exclude,
       output: normalizeOutput(options.artifacts?.output ?? DefaultOutput),
+      concurrency: options.capture.concurrency ?? availableParallelism(),
       timeoutMs: options.capture.timeoutMs ?? 30_000,
       ...(options.artifacts?.version === undefined
         ? {}
@@ -185,24 +187,24 @@ export const layer = (input: unknown) =>
     Config,
     Effect.gen(function* () {
       const options = yield* resolvePreviewOptions(input);
-      const resolveGeneration = Effect.fn(
-        "PreviewConfig.resolveGeneration",
-      )(function* (output?: unknown) {
-        const resolvedOutput =
-          output === undefined
-            ? options.output
-            : normalizeOutput(
-                yield* Schema.decodeUnknownEffect(Output)(output).pipe(
-                  configError("generation output"),
-                ),
-              );
+      const resolveGeneration = Effect.fn("PreviewConfig.resolveGeneration")(
+        function* (output?: unknown) {
+          const resolvedOutput =
+            output === undefined
+              ? options.output
+              : normalizeOutput(
+                  yield* Schema.decodeUnknownEffect(Output)(output).pipe(
+                    configError("generation output"),
+                  ),
+                );
 
-        return {
-          ...options,
-          output: resolvedOutput,
-          cleanOutputs: [...new Set([options.output, resolvedOutput])],
-        } satisfies ResolvedGenerationOptions;
-      });
+          return {
+            ...options,
+            output: resolvedOutput,
+            cleanOutputs: [...new Set([options.output, resolvedOutput])],
+          } satisfies ResolvedGenerationOptions;
+        },
+      );
 
       return Config.of({ options, resolveGeneration });
     }),

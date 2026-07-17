@@ -1,52 +1,24 @@
-import { fileURLToPath } from "node:url";
 import * as Effect from "effect/Effect";
 import * as ManagedRuntime from "effect/ManagedRuntime";
-import type {
-  ModuleNode,
-  Plugin,
-  ViteDevServer,
+import {
+  normalizePath,
+  type ModuleNode,
+  type Plugin,
+  type ViteDevServer,
 } from "vite";
 import type { PreviewPluginOptions } from "../PreviewPlugin";
-import type * as Generation from "./generation";
-import { layer } from "./layer";
-import * as PluginControl from "./plugin-control";
 import {
-  findApplicationPreviewCode,
+  findProductionPreviewCode,
   formatProductionCodeError,
   PreviewLabel,
 } from "./check";
-import * as Protocol from "./protocol";
+import type * as Generation from "./generation";
+import { layer } from "./layer";
+import * as Logging from "./logging";
+import * as PluginControl from "./plugin-control";
+import * as RunnerEntry from "./runner-entry";
 import * as Config from "./services/Config";
 import * as PluginController from "./services/PluginController";
-
-const RunnerModuleId = "@nmnmcc/preview/internal/runner";
-const RunnerModulePath = fileURLToPath(
-  new URL(
-    "./src/internal/browser/main.ts",
-    import.meta.resolve("@nmnmcc/preview/package.json"),
-  ),
-);
-
-const HtmlTemplate = `<!doctype html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Preview</title>
-  </head>
-  <body>
-    <div id="preview-root"></div>
-    <script>
-      // React framework plugins can add Fast Refresh code to Sandbox modules.
-      window.$RefreshReg$ ??= () => {}
-      window.$RefreshSig$ ??= () => (type) => type
-      window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <script type="module">
-      import "@nmnmcc/preview/internal/runner"
-    </script>
-  </body>
-</html>`;
 
 const localBaseUrl = (server: ViteDevServer): string | undefined =>
   server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0];
@@ -54,9 +26,7 @@ const localBaseUrl = (server: ViteDevServer): string | undefined =>
 const formatUnknownError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-export const preview = (
-  options: PreviewPluginOptions,
-): Plugin => {
+export const preview = (options: PreviewPluginOptions): Plugin => {
   const check = options.build?.check ?? true;
   const makeRuntime = () => ManagedRuntime.make(layer(options));
   type PreviewRuntime = ReturnType<typeof makeRuntime>;
@@ -137,7 +107,7 @@ export const preview = (
       )
       .catch((error: unknown) => {
         viteServer.config.logger.error(
-          `[preview] ${formatUnknownError(error)}`,
+          Logging.formatMessage("error", formatUnknownError(error), Date.now()),
         );
       });
   };
@@ -185,7 +155,7 @@ export const preview = (
       if (environment.command !== "serve") return undefined;
       return {
         optimizeDeps: {
-          exclude: ["@nmnmcc/preview"],
+          exclude: ["@effect/platform-browser", "@nmnmcc/preview", "effect"],
         },
       };
     },
@@ -206,6 +176,10 @@ export const preview = (
     },
     configResolved(resolved) {
       if (resolved.command !== "serve") return undefined;
+      const runnerPackagePath = normalizePath(RunnerEntry.RunnerPackagePath);
+      if (!resolved.server.fs.allow.includes(runnerPackagePath)) {
+        resolved.server.fs.allow.push(runnerPackagePath);
+      }
       return getRuntime().runPromise(
         Effect.gen(function* () {
           const controller = yield* PluginController.PluginController;
@@ -222,20 +196,17 @@ export const preview = (
       order: "post",
       handler(_outputOptions, bundle) {
         if (!check) return;
-        const matches = findApplicationPreviewCode(
-          bundle,
-          (code) => this.parse(code),
+        const matches = findProductionPreviewCode(bundle, (code) =>
+          this.parse(code),
         );
         if (matches.length > 0) {
-          this.error(
-            formatProductionCodeError(this.environment.name, matches),
-          );
+          this.error(formatProductionCodeError(this.environment.name, matches));
         }
       },
     },
     resolveId(id) {
-      if (id !== RunnerModuleId) return undefined;
-      return RunnerModulePath;
+      if (id !== RunnerEntry.RunnerModuleId) return undefined;
+      return RunnerEntry.RunnerModulePath;
     },
     async configureServer(viteServer) {
       const activeRuntime = getRuntime();
@@ -250,28 +221,6 @@ export const preview = (
           });
         }),
       );
-      viteServer.middlewares.use((request, response, next) => {
-        const requestUrl =
-          request.url === undefined
-            ? undefined
-            : new URL(request.url, "http://preview.local");
-        if (requestUrl?.pathname !== Protocol.PreviewRoute) {
-          next();
-          return;
-        }
-        void viteServer
-          .transformIndexHtml(
-            request.url ?? Protocol.PreviewRoute,
-            HtmlTemplate,
-          )
-          .then((html) => {
-            response.statusCode = 200;
-            response.setHeader("Content-Type", "text/html; charset=utf-8");
-            response.end(html);
-          })
-          .catch((error: unknown) => next(error));
-      });
-
       if (viteServer.httpServer !== null) {
         viteServer.httpServer.once("listening", () => {
           scheduleGeneration(viteServer);

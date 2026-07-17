@@ -1,11 +1,5 @@
 import { rejects } from "node:assert/strict";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "@effect/vitest";
@@ -13,7 +7,6 @@ import { deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
 import preview from "../src/index";
 import * as ProjectRunner from "../src/internal/cli/services/ProjectRunner";
-import * as Artifacts from "../src/internal/services/Artifacts";
 
 const pluginOptions = {
   artifacts: { clean: true, output: "configured" },
@@ -28,10 +21,7 @@ const runGeneration = (root: string, output?: string) =>
       paths: [],
       ...(output === undefined ? {} : { output }),
     });
-  }).pipe(
-    Effect.provide(ProjectRunner.layer),
-    Effect.runPromise,
-  );
+  }).pipe(Effect.provide(ProjectRunner.layer), Effect.runPromise);
 
 describe("preview plugin control", () => {
   it("returns a standard Vite plugin without a public generation API", () => {
@@ -66,14 +56,6 @@ describe("preview plugin control", () => {
         writeFile(configuredStalePng, Uint8Array.from([137, 80, 78, 71])),
         writeFile(overrideStalePng, Uint8Array.from([137, 80, 78, 71])),
         writeFile(
-          join(configuredStalePng, "..", Artifacts.OwnershipMarkerName),
-          Artifacts.OwnershipMarkerContent,
-        ),
-        writeFile(
-          join(overrideStalePng, "..", Artifacts.OwnershipMarkerName),
-          Artifacts.OwnershipMarkerContent,
-        ),
-        writeFile(
           join(root, "package.json"),
           JSON.stringify({ private: true, type: "module" }),
         ),
@@ -106,10 +88,7 @@ export default { logLevel: "silent", plugins: [preview(${JSON.stringify(pluginOp
         join(root, "vite.config.ts"),
         `export default { logLevel: "silent" };\n`,
       );
-      await rejects(
-        runGeneration(root),
-        /does not include @nmnmcc\/preview/u,
-      );
+      await rejects(runGeneration(root), /does not include @nmnmcc\/preview/u);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

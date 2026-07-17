@@ -1,14 +1,17 @@
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FiberHandle from "effect/FiberHandle";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type * as Generation from "../../generation";
+import * as Logging from "../../logging";
 import type { GenerateRequest } from "../../plugin-control";
 import * as Artifacts from "../Artifacts";
 import * as Config from "../Config";
@@ -53,9 +56,7 @@ const GenerateRequest = Schema.Struct({
   paths: Schema.optionalKey(Schema.Array(Schema.String)),
 }) satisfies Schema.Codec<GenerateRequest>;
 
-export type GenerateError =
-  | Config.PreviewConfigError
-  | Renderer.RenderError;
+export type GenerateError = Config.PreviewConfigError | Renderer.RenderError;
 
 export interface Interface {
   readonly configure: (
@@ -67,17 +68,16 @@ export interface Interface {
   readonly generate: (
     request?: unknown,
   ) => Effect.Effect<Generation.GenerationSummary, GenerateError>;
-  readonly schedule: (
-    paths?: ReadonlyArray<string>,
-  ) => Effect.Effect<void>;
+  readonly schedule: (paths?: ReadonlyArray<string>) => Effect.Effect<void>;
   readonly prepareCli: Effect.Effect<void, Config.PreviewConfigError>;
   readonly isOutputPath: (file: string) => Effect.Effect<boolean>;
   readonly shutdown: Effect.Effect<void>;
 }
 
-export class PluginController extends Context.Service<PluginController, Interface>()(
-  "@nmnmcc/preview/PluginController",
-) {}
+export class PluginController extends Context.Service<
+  PluginController,
+  Interface
+>()("@nmnmcc/preview/PluginController") {}
 
 const configError = (
   detail: string,
@@ -94,9 +94,7 @@ const mergePending = (
 ): Pending => {
   if (paths === undefined) return Pending.All();
   if (current._tag === "All") return current;
-  const merged = new Set(
-    current._tag === "Paths" ? current.paths : undefined,
-  );
+  const merged = new Set(current._tag === "Paths" ? current.paths : undefined);
   for (const path of paths) merged.add(path);
   return Pending.Paths({ paths: merged });
 };
@@ -106,12 +104,11 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const artifacts = yield* Artifacts.Artifacts;
     const config = yield* Config.Config;
+    const path = yield* Path.Path;
     const renderer = yield* Renderer.Renderer;
     const lifecycle = yield* Ref.make<Lifecycle>(Lifecycle.Created());
     const pending = yield* Ref.make<Pending>(Pending.None());
-    const ignoredDirectories = yield* Ref.make<ReadonlySet<string>>(
-      new Set(),
-    );
+    const ignoredDirectories = yield* Ref.make<ReadonlySet<string>>(new Set());
     const automaticGeneration = yield* Ref.make(true);
     const generationSemaphore = yield* Semaphore.make(1);
     const debounce = yield* FiberHandle.make<void, never>();
@@ -136,16 +133,13 @@ export const layer = Layer.effect(
       return { ...state, baseUrl };
     });
 
-    const ignoreDirectories = Effect.fn(
-      "PreviewPlugin.ignoreDirectories",
-    )(function* (
-      server: Server,
-      directories: ReadonlyArray<string>,
-      replayAll = false,
-    ) {
-      const toUnwatch = yield* Ref.modify(
-        ignoredDirectories,
-        (current) => {
+    const ignoreDirectories = Effect.fn("PreviewPlugin.ignoreDirectories")(
+      function* (
+        server: Server,
+        directories: ReadonlyArray<string>,
+        replayAll = false,
+      ) {
+        const toUnwatch = yield* Ref.modify(ignoredDirectories, (current) => {
           const next = new Set(current);
           const added: Array<string> = [];
           for (const directory of directories) {
@@ -154,15 +148,15 @@ export const layer = Layer.effect(
             added.push(directory);
           }
           return [replayAll ? [...next] : added, next] as const;
-        },
-      );
-      yield* Effect.sync(() => {
-        for (const directory of toUnwatch) server.unwatch(directory);
-      });
-    });
+        });
+        yield* Effect.sync(() => {
+          for (const directory of toUnwatch) server.unwatch(directory);
+        });
+      },
+    );
 
-    const discoverOwnedDirectories = Effect.fn(
-      "PreviewPlugin.discoverOwnedDirectories",
+    const discoverOutputDirectories = Effect.fn(
+      "PreviewPlugin.discoverOutputDirectories",
     )(function* (
       project: Project,
       server: Server,
@@ -170,7 +164,7 @@ export const layer = Layer.effect(
       replayAll = false,
     ) {
       const directories = yield* artifacts
-        .ownedDirectories(project.root, outputs)
+        .outputDirectories(project.root, outputs)
         .pipe(
           Effect.mapError((cause) =>
             configError(
@@ -192,7 +186,7 @@ export const layer = Layer.effect(
       yield* ignoreDirectories(
         server,
         summary.artifacts.map((artifact) =>
-          artifacts.sourceDirectory(artifact.source, output),
+          artifacts.outputDirectory(artifact.source, output),
         ),
       );
     });
@@ -202,7 +196,7 @@ export const layer = Layer.effect(
     ) {
       const attached = yield* readAttached();
       const generationConfig = yield* config.resolveGeneration(request.output);
-      yield* discoverOwnedDirectories(
+      yield* discoverOutputDirectories(
         attached.project,
         attached.server,
         generationConfig.cleanOutputs,
@@ -211,9 +205,7 @@ export const layer = Layer.effect(
         root: attached.project.root,
         baseUrl: attached.baseUrl,
         ...(request.output === undefined ? {} : { output: request.output }),
-        ...(request.paths === undefined
-          ? {}
-          : { filters: [...request.paths] }),
+        ...(request.paths === undefined ? {} : { filters: [...request.paths] }),
       });
       yield* ignoreSummaryDirectories(
         attached.server,
@@ -223,21 +215,27 @@ export const layer = Layer.effect(
       return summary;
     });
 
-    const reportSummary = Effect.fn("PreviewPlugin.reportSummary")(
-      function* (
-        project: Project,
-        summary: Generation.GenerationSummary,
-      ) {
+    const reportSummary = Effect.fn("PreviewPlugin.reportSummary")(function* (
+      project: Project,
+      summary: Generation.GenerationSummary,
+    ) {
+      for (const artifact of summary.artifacts) {
+        const timestampMillis = yield* Clock.currentTimeMillis;
         yield* Effect.sync(() => {
-          for (const artifact of summary.artifacts) {
-            project.info(`[preview] generated ${artifact.pngPath}`);
-          }
-          for (const failure of summary.failures) {
-            project.error(`[preview] ${failure.message}`);
-          }
+          project.info(
+            Logging.formatGeneratedArtifact(path, artifact, timestampMillis),
+          );
         });
-      },
-    );
+      }
+      for (const failure of summary.failures) {
+        const timestampMillis = yield* Clock.currentTimeMillis;
+        yield* Effect.sync(() => {
+          project.error(
+            Logging.formatGenerationFailure(path, failure, timestampMillis),
+          );
+        });
+      }
+    });
 
     const supervise = <A, E, R>(
       project: Project,
@@ -247,8 +245,17 @@ export const layer = Layer.effect(
         effect,
         (cause) => !Cause.hasInterrupts(cause),
         (cause) =>
-          Effect.sync(() => {
-            project.error(`[preview] ${Cause.pretty(cause)}`);
+          Effect.gen(function* () {
+            const timestampMillis = yield* Clock.currentTimeMillis;
+            yield* Effect.sync(() => {
+              project.error(
+                Logging.formatMessage(
+                  "error",
+                  Cause.pretty(cause),
+                  timestampMillis,
+                ),
+              );
+            });
           }),
       );
 
@@ -328,7 +335,7 @@ export const layer = Layer.effect(
       if (result.newServer) {
         const state = yield* Ref.get(lifecycle);
         if (state._tag === "Attached") {
-          yield* discoverOwnedDirectories(
+          yield* discoverOutputDirectories(
             state.project,
             server,
             [config.options.output],
@@ -338,11 +345,9 @@ export const layer = Layer.effect(
       } else {
         const state = yield* Ref.get(lifecycle);
         if (state._tag === "Attached") {
-          yield* discoverOwnedDirectories(
-            state.project,
-            server,
-            [config.options.output],
-          );
+          yield* discoverOutputDirectories(state.project, server, [
+            config.options.output,
+          ]);
         }
       }
     });
@@ -364,10 +369,7 @@ export const layer = Layer.effect(
       paths?: ReadonlyArray<string>,
     ) {
       const state = yield* Ref.get(lifecycle);
-      if (
-        state._tag !== "Attached" ||
-        !(yield* Ref.get(automaticGeneration))
-      ) {
+      if (state._tag !== "Attached" || !(yield* Ref.get(automaticGeneration))) {
         return;
       }
       yield* Ref.update(pending, (current) => mergePending(current, paths));
@@ -392,20 +394,18 @@ export const layer = Layer.effect(
       yield* FiberHandle.clear(debounce);
     }).pipe(Effect.withSpan("PreviewPlugin.prepareCli"));
 
-    const isOutputPath = Effect.fn("PreviewPlugin.isOutputPath")(
-      function* (file: string) {
-        const directories = yield* Ref.get(ignoredDirectories);
-        return [...directories].some((directory) =>
-          artifacts.isPathInDirectory(file, directory),
-        );
-      },
-    );
+    const isOutputPath = Effect.fn("PreviewPlugin.isOutputPath")(function* (
+      file: string,
+    ) {
+      const directories = yield* Ref.get(ignoredDirectories);
+      return [...directories].some((directory) =>
+        artifacts.isPathInDirectory(file, directory),
+      );
+    });
 
     const shutdown = Effect.gen(function* () {
       const close = yield* Ref.modify(lifecycle, (state) =>
-        state._tag === "Closed"
-          ? [false, state]
-          : [true, Lifecycle.Closed()],
+        state._tag === "Closed" ? [false, state] : [true, Lifecycle.Closed()],
       );
       if (!close) return;
 

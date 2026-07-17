@@ -9,19 +9,9 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 const VersionTimestampPattern = /^\d{8}T\d{9}Z$/u;
-export const OwnershipMarkerName = ".nmnmcc-preview-artifacts";
-export const OwnershipMarkerContent =
-  "@nmnmcc/preview artifacts v1\n";
-const OwnershipMarkerBytes = new TextEncoder().encode(
-  OwnershipMarkerContent,
-);
+const GeneratedSourceDirectoryPattern = /\.[cm]?[jt]sx?$/iu;
 
-const ArtifactOperation = Schema.Literals([
-  "read",
-  "write",
-  "link",
-  "retain",
-]);
+const ArtifactOperation = Schema.Literals(["read", "write", "link", "retain"]);
 
 export class PreviewWriteError extends Schema.TaggedErrorClass<PreviewWriteError>(
   "@nmnmcc/preview/PreviewWriteError",
@@ -87,14 +77,12 @@ export interface Interface {
   readonly cleanSource: (
     input: CleanSourceInput,
   ) => Effect.Effect<void, PreviewCleanError>;
-  readonly isPathInDirectory: (
-    file: string,
-    directory: string,
-  ) => boolean;
-  readonly ownedDirectories: (
+  readonly isPathInDirectory: (file: string, directory: string) => boolean;
+  readonly outputDirectories: (
     root: string,
     outputs: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlySet<string>, PreviewCleanError>;
+  readonly outputDirectory: (source: string, output: string) => string;
   readonly sourceDirectory: (source: string, output: string) => string;
   readonly write: (
     input: WriteInput,
@@ -173,13 +161,13 @@ export const layer = Layer.effect(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
-    const sourceDirectory = (source: string, output: string): string =>
-      path.join(path.dirname(source), output, path.basename(source));
+    const outputDirectory = (source: string, output: string): string =>
+      path.join(path.dirname(source), output);
 
-    const isPathInDirectory = (
-      file: string,
-      directory: string,
-    ): boolean => {
+    const sourceDirectory = (source: string, output: string): string =>
+      path.join(outputDirectory(source, output), path.basename(source));
+
+    const isPathInDirectory = (file: string, directory: string): boolean => {
       const resolvedFile = path.resolve(file);
       const resolvedDirectory = path.resolve(directory);
       return (
@@ -193,8 +181,7 @@ export const layer = Layer.effect(
       target: string,
     ) =>
       Effect.mapError(
-        (cause) =>
-          new PreviewWriteError({ operation, path: target, cause }),
+        (cause) => new PreviewWriteError({ operation, path: target, cause }),
       );
     const cleanError = (target: string) =>
       Effect.mapError(
@@ -222,15 +209,15 @@ export const layer = Layer.effect(
     const readDirectoryForClean = Effect.fnUntraced(function* (
       directory: string,
     ) {
-      return yield* fs.readDirectory(directory).pipe(
-        Effect.catch((cause) =>
-          isNotFound(cause)
-            ? Effect.succeed([])
-            : Effect.fail(
-                new PreviewCleanError({ path: directory, cause }),
-              ),
-        ),
-      );
+      return yield* fs
+        .readDirectory(directory)
+        .pipe(
+          Effect.catch((cause) =>
+            isNotFound(cause)
+              ? Effect.succeed([])
+              : Effect.fail(new PreviewCleanError({ path: directory, cause })),
+          ),
+        );
     });
 
     const writeAtomic = Effect.fnUntraced(function* (
@@ -330,51 +317,14 @@ export const layer = Layer.effect(
       };
     });
 
-    const claimDirectory = Effect.fnUntraced(function* (
-      directory: string,
-    ) {
-      const marker = path.join(directory, OwnershipMarkerName);
-      const markerResult = yield* Effect.result(fs.readFileString(marker));
-      if (Result.isSuccess(markerResult)) {
-        if (markerResult.success === OwnershipMarkerContent) return;
-        return yield* new PreviewWriteError({
-          operation: "write",
-          path: directory,
-          cause: new Error(
-            "The artifact directory has an invalid ownership marker.",
-          ),
-        });
-      }
-      if (!isNotFound(markerResult.failure)) {
-        return yield* new PreviewWriteError({
-          operation: "read",
-          path: marker,
-          cause: markerResult.failure,
-        });
-      }
-
-      const names = yield* readDirectoryForWrite(directory);
-      if (names.length > 0) {
-        return yield* new PreviewWriteError({
-          operation: "write",
-          path: directory,
-          cause: new Error(
-            "The artifact directory is not empty and has no ownership marker.",
-          ),
-        });
-      }
-      yield* writeAtomic(marker, OwnershipMarkerBytes);
-    });
-
     const currentVersionForClean = Effect.fnUntraced(function* (
       alias: string,
       versions: ReadonlyArray<VersionFile>,
     ) {
       const linkResult = yield* Effect.result(fs.readLink(alias));
       if (Result.isSuccess(linkResult)) {
-        return versions.find(
-          (version) => version.name === linkResult.success,
-        )?.name;
+        return versions.find((version) => version.name === linkResult.success)
+          ?.name;
       }
 
       const fileResult = yield* Effect.result(fs.readFile(alias));
@@ -395,9 +345,7 @@ export const layer = Layer.effect(
     ) {
       const names = yield* readDirectoryForWrite(directory);
       const versions = versionsFor(artifactIdentity, names);
-      const current = versions.find(
-        (version) => version.name === currentName,
-      );
+      const current = versions.find((version) => version.name === currentName);
       const eligible =
         current === undefined
           ? versions
@@ -423,9 +371,7 @@ export const layer = Layer.effect(
     ) {
       const names = yield* readDirectoryForClean(directory);
       const versions = versionsFor(artifactIdentity, names);
-      const current = versions.find(
-        (version) => version.name === currentName,
-      );
+      const current = versions.find((version) => version.name === currentName);
       const eligible =
         current === undefined
           ? versions
@@ -450,8 +396,6 @@ export const layer = Layer.effect(
       const artifactIdentity = identity(input);
       const alias = path.join(directory, `${artifactIdentity}.png`);
 
-      yield* claimDirectory(directory);
-
       if (input.version === undefined) {
         yield* writeAtomic(alias, input.png);
         return alias;
@@ -459,10 +403,7 @@ export const layer = Layer.effect(
 
       const names = yield* readDirectoryForWrite(directory);
       const versions = versionsFor(artifactIdentity, names);
-      const state = yield* currentVersionForWrite(
-        alias,
-        versions,
-      );
+      const state = yield* currentVersionForWrite(alias, versions);
       if (state.current !== undefined && !state.legacyAlias) {
         const currentPath = path.join(directory, state.current.name);
         const currentPng = yield* fs
@@ -508,151 +449,143 @@ export const layer = Layer.effect(
       return versionPath;
     });
 
-    const cleanSource = Effect.fn("PreviewArtifacts.cleanSource")(
-      function* (input: CleanSourceInput) {
-        const directory = sourceDirectory(input.source, input.output);
-        const marker = path.join(directory, OwnershipMarkerName);
-        const markerContent = yield* fs.readFileString(marker).pipe(
-          Effect.catch((cause) =>
-            isNotFound(cause)
-              ? Effect.void
-              : Effect.fail(
-                  new PreviewCleanError({ path: marker, cause }),
-                ),
-          ),
-        );
-        if (markerContent !== OwnershipMarkerContent) return;
-        const names = yield* readDirectoryForClean(directory);
-        const identities = [...new Set(input.targets.map(identity))];
-        const aliases = new Set(
-          identities.map((artifactIdentity) => `${artifactIdentity}.png`),
-        );
-        const currentVersions = new Map<string, string | undefined>();
-
-        for (const artifactIdentity of identities) {
-          const versions = versionsFor(artifactIdentity, names);
-          currentVersions.set(
-            artifactIdentity,
-            yield* currentVersionForClean(
-              path.join(directory, `${artifactIdentity}.png`),
-              versions,
-            ),
-          );
-        }
-
-        const keepPng = (name: string): boolean => {
-          if (aliases.has(name)) return true;
-          for (const artifactIdentity of identities) {
-            const version = versionFile(artifactIdentity, name);
-            if (version === undefined) continue;
-            if (input.version !== undefined) return true;
-            return currentVersions.get(artifactIdentity) === name;
-          }
-          return false;
-        };
-
-        yield* Effect.forEach(
-          names.filter(
-            (name) => name.endsWith(".png") && !keepPng(name),
-          ),
-          (name) => {
-            const target = path.join(directory, name);
-            return fs.remove(target).pipe(cleanError(target));
-          },
-          { concurrency: "unbounded", discard: true },
-        );
-
-        const version = input.version;
-        if (version !== undefined) {
-          yield* Effect.forEach(
-            identities,
-            (artifactIdentity) =>
-              pruneForClean(
-                directory,
-                artifactIdentity,
-                version.retain,
-                currentVersions.get(artifactIdentity),
-              ),
-            { concurrency: 1, discard: true },
-          );
-        }
-      },
-    );
-
-    const ownedDirectories = Effect.fn(
-      "PreviewArtifacts.ownedDirectories",
-    )(function* (root: string, outputs: ReadonlyArray<string>) {
-      const markerGroups = yield* Effect.forEach(
-        [...new Set(outputs)],
-        (output) =>
-          fs
-            .glob(`**/${output}/*/${OwnershipMarkerName}`, {
-              root,
-              exclude: ["**/node_modules/**"],
-            })
-            .pipe(cleanError(path.resolve(root, output))),
-        { concurrency: "unbounded" },
+    const cleanSource = Effect.fn("PreviewArtifacts.cleanSource")(function* (
+      input: CleanSourceInput,
+    ) {
+      const directory = sourceDirectory(input.source, input.output);
+      const names = yield* readDirectoryForClean(directory);
+      const identities = [...new Set(input.targets.map(identity))];
+      const aliases = new Set(
+        identities.map((artifactIdentity) => `${artifactIdentity}.png`),
       );
-      const directories = new Set<string>();
+      const currentVersions = new Map<string, string | undefined>();
 
-      for (const candidate of new Set(markerGroups.flat())) {
-        const marker = path.resolve(root, candidate);
-        const content = yield* fs.readFileString(marker).pipe(
-          Effect.catch((cause) =>
-            isNotFound(cause)
-              ? Effect.void
-              : Effect.fail(
-                  new PreviewCleanError({ path: marker, cause }),
-                ),
+      for (const artifactIdentity of identities) {
+        const versions = versionsFor(artifactIdentity, names);
+        currentVersions.set(
+          artifactIdentity,
+          yield* currentVersionForClean(
+            path.join(directory, `${artifactIdentity}.png`),
+            versions,
           ),
         );
-        if (content === OwnershipMarkerContent) {
-          directories.add(path.dirname(marker));
-        }
       }
 
-      return directories;
+      const keepPng = (name: string): boolean => {
+        if (aliases.has(name)) return true;
+        for (const artifactIdentity of identities) {
+          const version = versionFile(artifactIdentity, name);
+          if (version === undefined) continue;
+          if (input.version !== undefined) return true;
+          return currentVersions.get(artifactIdentity) === name;
+        }
+        return false;
+      };
+
+      yield* Effect.forEach(
+        names.filter((name) => name.endsWith(".png") && !keepPng(name)),
+        (name) => {
+          const target = path.join(directory, name);
+          return fs.remove(target).pipe(cleanError(target));
+        },
+        { concurrency: "unbounded", discard: true },
+      );
+
+      const version = input.version;
+      if (version !== undefined) {
+        yield* Effect.forEach(
+          identities,
+          (artifactIdentity) =>
+            pruneForClean(
+              directory,
+              artifactIdentity,
+              version.retain,
+              currentVersions.get(artifactIdentity),
+            ),
+          { concurrency: 1, discard: true },
+        );
+      }
     });
 
-    const cleanProject = Effect.fn("PreviewArtifacts.cleanProject")(
-      function* (input: CleanProjectInput) {
-        const activeDirectories = new Set(
-          input.activeSources.map(({ source, output }) =>
-            path.resolve(sourceDirectory(source, output)),
+    const outputDirectories = Effect.fn("PreviewArtifacts.outputDirectories")(
+      function* (root: string, outputs: ReadonlyArray<string>) {
+        const fileGroups = yield* Effect.forEach(
+          [...new Set(outputs)],
+          (output) =>
+            fs
+              .glob(`**/${output}/*/*.png`, {
+                root,
+                exclude: ["**/node_modules/**"],
+              })
+              .pipe(cleanError(path.resolve(root, output))),
+          { concurrency: "unbounded" },
+        );
+        const candidates = [
+          ...new Set(
+            fileGroups
+              .flat()
+              .map((file) => path.dirname(path.resolve(root, file)))
+              .filter((directory) =>
+                GeneratedSourceDirectoryPattern.test(path.basename(directory)),
+              )
+              .map((directory) => path.dirname(directory)),
           ),
-        );
-        const directories = yield* ownedDirectories(
-          input.root,
-          input.outputs,
-        );
-        const stale = [...directories].filter(
-          (directory) => !activeDirectories.has(directory),
-        );
-        yield* Effect.forEach(
-          stale,
-          (directory) =>
-            readDirectoryForClean(directory).pipe(
-              Effect.flatMap((names) =>
-                Effect.forEach(
-                  names.filter((name) => name.endsWith(".png")),
-                  (name) => {
-                    const file = path.join(directory, name);
-                    return fs.remove(file).pipe(cleanError(file));
-                  },
-                  { concurrency: "unbounded", discard: true },
-                ),
-              ),
-            ),
-          { concurrency: "unbounded", discard: true },
-        );
+        ].toSorted((left, right) => left.length - right.length);
+        const directories = new Set<string>();
+        for (const candidate of candidates) {
+          if (
+            [...directories].some((directory) =>
+              isPathInDirectory(candidate, directory),
+            )
+          ) {
+            continue;
+          }
+          directories.add(candidate);
+        }
+        return directories;
       },
     );
+
+    const cleanProject = Effect.fn("PreviewArtifacts.cleanProject")(function* (
+      input: CleanProjectInput,
+    ) {
+      const activeDirectories = input.activeSources.map(({ source, output }) =>
+        path.resolve(sourceDirectory(source, output)),
+      );
+      const directories = yield* outputDirectories(input.root, input.outputs);
+      yield* Effect.forEach(
+        directories,
+        (directory) =>
+          fs.glob("**/*.png", { root: directory }).pipe(
+            cleanError(directory),
+            Effect.flatMap((files) =>
+              Effect.forEach(
+                files,
+                (candidate) => {
+                  const file = path.resolve(directory, candidate);
+                  if (
+                    activeDirectories.some((activeDirectory) =>
+                      isPathInDirectory(file, activeDirectory),
+                    )
+                  ) {
+                    return Effect.void;
+                  }
+                  return fs.remove(file).pipe(cleanError(file));
+                },
+                { concurrency: "unbounded", discard: true },
+              ),
+            ),
+          ),
+        { concurrency: "unbounded", discard: true },
+      );
+    });
 
     return Artifacts.of({
       cleanProject,
       cleanSource,
       isPathInDirectory,
-      ownedDirectories,
+      outputDirectories,
+      outputDirectory,
       sourceDirectory,
       write,
     });

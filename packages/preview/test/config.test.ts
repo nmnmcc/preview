@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { describe, it } from "@effect/vitest";
 import {
   assertInclude,
@@ -5,16 +6,16 @@ import {
   deepStrictEqual,
   strictEqual,
 } from "@effect/vitest/utils";
+import { ViewportPresets } from "@nmnmcc/preview";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
-import { ViewportPresets } from "@nmnmcc/preview";
-import type { PreviewPluginOptions } from "../src/PreviewPlugin";
 import {
-  Config as PreviewConfig,
   layer as configLayer,
+  Config as PreviewConfig,
   resolvePreviewMetadata,
   resolvePreviewOptions,
 } from "../src/internal/services/Config";
+import type { PreviewPluginOptions } from "../src/PreviewPlugin";
 
 describe("preview configuration", () => {
   it.effect("resolves required project viewports and defaults", () =>
@@ -31,6 +32,7 @@ describe("preview configuration", () => {
       deepStrictEqual(config.include, ["**/*.preview.{js,jsx,ts,tsx}"]);
       deepStrictEqual(config.exclude, []);
       strictEqual(config.output, ".preview");
+      strictEqual(config.concurrency, availableParallelism());
       strictEqual(config.timeoutMs, 30_000);
       strictEqual(config.version, undefined);
       deepStrictEqual(config.viewports.mobile, {
@@ -43,42 +45,65 @@ describe("preview configuration", () => {
       const cleanConfig = yield* resolvePreviewOptions({
         artifacts: { clean: true, version: { retain: 3 } },
         capture: {
+          concurrency: 2,
           viewports: {
             mobile: { width: 390, height: 844 },
           },
         },
       });
       strictEqual(cleanConfig.clean, true);
+      strictEqual(cleanConfig.concurrency, 2);
       deepStrictEqual(cleanConfig.version, { retain: 3 });
     }),
   );
 
-  it.effect("provides resolved options and generation output as a service", () =>
-    Effect.gen(function* () {
-      const config = yield* PreviewConfig;
+  it.effect(
+    "provides resolved options and generation output as a service",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* PreviewConfig;
 
-      strictEqual(config.options.output, "artifacts/previews");
-      const defaultGeneration = yield* config.resolveGeneration();
-      deepStrictEqual(defaultGeneration.cleanOutputs, [
-        "artifacts/previews",
-      ]);
+        strictEqual(config.options.output, "artifacts/previews");
+        const defaultGeneration = yield* config.resolveGeneration();
+        deepStrictEqual(defaultGeneration.cleanOutputs, ["artifacts/previews"]);
 
-      const overrideGeneration = yield* config.resolveGeneration("images");
-      strictEqual(overrideGeneration.output, "images");
-      deepStrictEqual(overrideGeneration.cleanOutputs, [
-        "artifacts/previews",
-        "images",
-      ]);
-    }).pipe(
-      Effect.provide(
-        configLayer({
-          artifacts: { output: "artifacts\\previews" },
-          capture: {
-            viewports: { mobile: { width: 390, height: 844 } },
-          },
-        }),
+        const overrideGeneration = yield* config.resolveGeneration("images");
+        strictEqual(overrideGeneration.output, "images");
+        deepStrictEqual(overrideGeneration.cleanOutputs, [
+          "artifacts/previews",
+          "images",
+        ]);
+      }).pipe(
+        Effect.provide(
+          configLayer({
+            artifacts: { output: "artifacts\\previews" },
+            capture: {
+              viewports: { mobile: { width: 390, height: 844 } },
+            },
+          }),
+        ),
       ),
-    ),
+  );
+
+  it.effect("rejects invalid capture concurrency", () =>
+    Effect.gen(function* () {
+      for (const concurrency of [0, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+        const result = yield* Effect.result(
+          resolvePreviewOptions({
+            capture: {
+              concurrency,
+              viewports: { mobile: { width: 390, height: 844 } },
+            },
+          }),
+        );
+
+        assertTrue(Result.isFailure(result));
+        if (Result.isFailure(result)) {
+          strictEqual(result.failure._tag, "PreviewConfigError");
+          assertInclude(result.failure.detail, '["capture"]["concurrency"]');
+        }
+      }
+    }),
   );
 
   it.effect("rejects output paths outside a source child directory", () =>
@@ -189,10 +214,7 @@ describe("preview configuration", () => {
         const groupConfig = yield* resolvePreviewOptions({
           capture: { viewports: group },
         });
-        deepStrictEqual(
-          Object.keys(groupConfig.viewports),
-          Object.keys(group),
-        );
+        deepStrictEqual(Object.keys(groupConfig.viewports), Object.keys(group));
         for (const viewport of Object.values(groupConfig.viewports)) {
           strictEqual(viewport.deviceScaleFactor, 1);
         }
@@ -280,6 +302,42 @@ describe("preview configuration", () => {
             '["capture"]["viewports"]["mobile"]["height"]',
           );
         }
+      }
+    }),
+  );
+
+  it.effect("rejects empty and unknown preview viewport selections", () =>
+    Effect.gen(function* () {
+      const emptyProject = yield* Effect.result(
+        resolvePreviewOptions({ capture: { viewports: {} } }),
+      );
+      assertTrue(Result.isFailure(emptyProject));
+      if (Result.isFailure(emptyProject)) {
+        strictEqual(emptyProject.failure._tag, "PreviewConfigError");
+        assertInclude(emptyProject.failure.detail, "viewports");
+      }
+
+      const project = yield* resolvePreviewOptions({
+        capture: {
+          viewports: { mobile: { width: 390, height: 844 } },
+        },
+      });
+      const emptySelection = yield* Effect.result(
+        resolvePreviewMetadata({ viewports: {} }, project),
+      );
+      assertTrue(Result.isFailure(emptySelection));
+      if (Result.isFailure(emptySelection)) {
+        strictEqual(emptySelection.failure._tag, "PreviewConfigError");
+        assertInclude(emptySelection.failure.detail, "preview metadata");
+      }
+
+      const unknownSelection = yield* Effect.result(
+        resolvePreviewMetadata({ viewports: { unknown: true } }, project),
+      );
+      assertTrue(Result.isFailure(unknownSelection));
+      if (Result.isFailure(unknownSelection)) {
+        strictEqual(unknownSelection.failure._tag, "PreviewConfigError");
+        assertInclude(unknownSelection.failure.detail, "unknown viewport");
       }
     }),
   );

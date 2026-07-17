@@ -1,32 +1,34 @@
-import * as Schema from "effect/Schema"
-import { defineConfig } from "tsdown"
+import * as Schema from "effect/Schema";
+import { defineConfig } from "tsdown";
 
 const DevelopmentEntry = Schema.Struct({
   development: Schema.String,
-  default: Schema.String
-})
+  default: Schema.String,
+});
 
-interface DevelopmentEntry extends Schema.Schema.Type<typeof DevelopmentEntry> {}
+interface DevelopmentEntry extends Schema.Schema.Type<
+  typeof DevelopmentEntry
+> {}
 
 const declarationPath = (entry: string): string => {
   if (!entry.endsWith(".mjs")) {
-    throw new Error(`Expected an ESM entry, received ${entry}`)
+    throw new Error(`Expected an ESM entry, received ${entry}`);
   }
-  return `${entry.slice(0, -4)}.d.mts`
-}
+  return `${entry.slice(0, -4)}.d.mts`;
+};
 
 const publishedEntry = (entry: string) => ({
   types: declarationPath(entry),
-  default: entry
-})
+  default: entry,
+});
 
-const isDevelopmentEntry = Schema.is(DevelopmentEntry)
+const isDevelopmentEntry = Schema.is(DevelopmentEntry);
 
 const developmentEntry = (entry: DevelopmentEntry) => ({
   development: entry.development,
   types: declarationPath(entry.default),
-  default: entry.default
-})
+  default: entry.default,
+});
 
 export default defineConfig({
   entry: {
@@ -43,30 +45,31 @@ export default defineConfig({
       "@effect/platform-browser",
       "@effect/platform-node-shared",
       "effect",
+      "picocolors",
       "playwright",
-      "vite"
-    ]
+      "vite",
+    ],
   },
   exports: {
     bin: false,
     exclude: ["main"],
     customExports(exports, { isPublish }) {
-      const browserEntry = exports["./browser"]
-      const defaultEntry = exports["."]
-      const runnerEntry = exports["./runner"]
+      const browserEntry = exports["./browser"];
+      const defaultEntry = exports["."];
+      const runnerEntry = exports["./runner"];
       if (isPublish) {
         if (
           typeof browserEntry !== "string" ||
           typeof defaultEntry !== "string" ||
           typeof runnerEntry !== "string"
         ) {
-          throw new Error("Could not generate the preview package entries")
+          throw new Error("Could not generate the preview package entries");
         }
         exports["."] = {
           browser: publishedEntry(browserEntry),
-          ...publishedEntry(defaultEntry)
-        }
-        exports["./internal/runner"] = publishedEntry(runnerEntry)
+          ...publishedEntry(defaultEntry),
+        };
+        exports["./internal/runner"] = publishedEntry(runnerEntry);
       } else if (
         isDevelopmentEntry(browserEntry) &&
         isDevelopmentEntry(defaultEntry) &&
@@ -74,15 +77,15 @@ export default defineConfig({
       ) {
         exports["."] = {
           browser: developmentEntry(browserEntry),
-          ...developmentEntry(defaultEntry)
-        }
-        exports["./internal/runner"] = developmentEntry(runnerEntry)
+          ...developmentEntry(defaultEntry),
+        };
+        exports["./internal/runner"] = developmentEntry(runnerEntry);
       } else {
-        throw new Error("Could not generate the preview package entries")
+        throw new Error("Could not generate the preview package entries");
       }
-      delete exports["./browser"]
-      delete exports["./runner"]
-      return exports
-    }
-  }
-})
+      delete exports["./browser"];
+      delete exports["./runner"];
+      return exports;
+    },
+  },
+});

@@ -1,0 +1,10 @@
+[project]
+name = "preview-workspace-tools"
+version = "0.0.0"
+requires-python = "==3.14.*"
+dependencies = [
+  "skills-ref==0.1.1",
+]
+
+[tool.uv]
+package = false

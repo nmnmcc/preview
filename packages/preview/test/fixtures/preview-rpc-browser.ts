@@ -3,27 +3,21 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import * as ApplicationRpc from "../../src/internal/browser/services/ApplicationRpcClient";
+import * as RpcClient from "effect/unstable/rpc/RpcClient";
+import * as PreviewRpc from "../../src/internal/browser/services/PreviewRpcClient";
 import {
-  ApplicationRpcTestGroup,
-  ApplicationRpcTestState,
-  ApplicationRpcTestStateKey,
-} from "./application-rpc-contract";
+  PreviewRpcTestGroup,
+  PreviewRpcTestState,
+  PreviewRpcTestStateKey,
+} from "./preview-rpc-contract";
 
-const writeState = (
-  state: ApplicationRpcTestState,
-): Effect.Effect<void> =>
+const writeState = (state: PreviewRpcTestState): Effect.Effect<void> =>
   Effect.sync(() => {
-    Reflect.set(
-      globalThis,
-      Symbol.for(ApplicationRpcTestStateKey),
-      state,
-    );
+    Reflect.set(globalThis, Symbol.for(PreviewRpcTestStateKey), state);
   });
 
 const run = Effect.gen(function* () {
-  const applicationRpc = yield* ApplicationRpc.ApplicationRpcClient;
-  const client = yield* applicationRpc.connect(ApplicationRpcTestGroup);
+  const client = yield* RpcClient.make(PreviewRpcTestGroup);
   const echo = yield* client.Echo({ value: "browser" });
   const events = yield* client.Events().pipe(
     Stream.runCollect,
@@ -39,7 +33,7 @@ const run = Effect.gen(function* () {
     ),
   );
   const screenshot = yield* client.Screenshot();
-  return ApplicationRpcTestState.cases.Success.make({
+  return PreviewRpcTestState.cases.Success.make({
     echo,
     events,
     cancelled,
@@ -51,13 +45,13 @@ const program = run.pipe(
   Effect.matchCauseEffect({
     onFailure: (cause) =>
       writeState(
-        ApplicationRpcTestState.cases.Failure.make({
+        PreviewRpcTestState.cases.Failure.make({
           cause: Cause.pretty(cause),
         }),
       ),
     onSuccess: writeState,
   }),
-  Effect.provide(ApplicationRpc.layer),
+  Effect.provide(PreviewRpc.protocol),
   Effect.scoped,
 );
 

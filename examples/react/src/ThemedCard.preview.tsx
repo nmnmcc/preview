@@ -1,5 +1,4 @@
-import { matrix } from "@nmnmcc/preview";
-import type { PreviewReady } from "@nmnmcc/preview";
+import { matrix, type PreviewReady } from "@nmnmcc/preview";
 import { useContext } from "react";
 import { Card, type CardTheme } from "./Card";
 import { preview, PreviewLocaleContext, type PreviewLocale } from "./preview";

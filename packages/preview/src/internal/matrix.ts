@@ -11,19 +11,14 @@ export type PreviewMatrixAxis = readonly [
   ...ReadonlyArray<PreviewMatrixValue>,
 ];
 
-export type PreviewMatrixAxes = Readonly<
-  Record<string, PreviewMatrixAxis>
->;
+export type PreviewMatrixAxes = Readonly<Record<string, PreviewMatrixAxis>>;
 
 export type PreviewMatrixAxisInput<Axes extends PreviewMatrixAxes> = {
   readonly [Axis in keyof Axes]: Axes[Axis][number];
 };
 
 export type PreviewMatrixInclude<Axes extends PreviewMatrixAxes> = Readonly<
-  Record<
-    string,
-    { readonly [Axis in keyof Axes]: PreviewMatrixValue }
-  >
+  Record<string, { readonly [Axis in keyof Axes]: PreviewMatrixValue }>
 >;
 
 export type PreviewMatrixInput<
@@ -126,9 +121,7 @@ const validateExclude = (
     for (const [axis, value] of fields) {
       const values = valuesByAxis.get(axis);
       if (values === undefined) {
-        return fail(
-          `exclude references unknown axis ${JSON.stringify(axis)}.`,
-        );
+        return fail(`exclude references unknown axis ${JSON.stringify(axis)}.`);
       }
       if (!values.some((candidate) => Object.is(candidate, value))) {
         fail(
@@ -213,18 +206,14 @@ export const matrix = <
   for (const combination of combinations) {
     if (isExcluded(combination, exclude)) continue;
     const name = combination.nameParts.join(",");
-    definitions[name] = base(
-      combination.input as PreviewMatrixAxisInput<Axes>,
-    );
+    definitions[name] = base(combination.input as PreviewMatrixAxisInput<Axes>);
   }
 
   for (const [name, input] of Object.entries(include)) {
     if (Object.hasOwn(definitions, name)) {
       fail(`variant name ${JSON.stringify(name)} is used more than once.`);
     }
-    definitions[name] = base(
-      input as PreviewMatrixInput<Axes, Include>,
-    );
+    definitions[name] = base(input as PreviewMatrixInput<Axes, Include>);
   }
 
   if (Object.keys(definitions).length === 0) {

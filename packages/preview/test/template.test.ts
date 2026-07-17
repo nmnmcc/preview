@@ -1,19 +1,12 @@
 import { describe, it } from "@effect/vitest";
-import {
-  assertTrue,
-  deepStrictEqual,
-  strictEqual,
-} from "@effect/vitest/utils";
-import {
-  template,
-  type PreviewTemplate,
-} from "../src/Preview";
+import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import {
   preview,
   type ComponentPreviewDefinition,
   type PreviewMount,
   type PreviewOptions,
 } from "../src/index";
+import { template, type PreviewTemplate } from "../src/Preview";
 
 interface ProjectPreviewInput {
   readonly fullHeight: boolean;
@@ -51,10 +44,9 @@ describe("preview templates", () => {
   it("composes maps from the outer template to the base", () => {
     const calls: Array<string> = [];
     const mount: PreviewMount = () => () => undefined;
-    const base: PreviewTemplate<
-      PreviewOptions,
-      ComponentPreviewDefinition
-    > = (options) => {
+    const base: PreviewTemplate<PreviewOptions, ComponentPreviewDefinition> = (
+      options,
+    ) => {
       calls.push("base");
       return preview(options);
     };

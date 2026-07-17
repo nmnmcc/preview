@@ -3,9 +3,7 @@
 import { ready } from "@nmnmcc/preview/application";
 import { use, useEffect } from "react";
 
-const ProjectPage = ({
-  params,
-}: PageProps<"/projects/[projectId]">) => {
+const ProjectPage = ({ params }: PageProps<"/projects/[projectId]">) => {
   const { projectId } = use(params);
 
   preview: {

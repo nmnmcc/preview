@@ -1,5 +1,4 @@
-import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer as createNetServer } from "node:net";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,15 +8,12 @@ import {
   deepStrictEqual,
   strictEqual,
 } from "@effect/vitest/utils";
-import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { createServer } from "vite";
 import preview from "../src/index";
 import * as Generation from "../src/internal/generation";
 import * as PluginControl from "../src/internal/plugin-control";
-
-const ServerAddress = Schema.Struct({ port: Schema.Int });
-const isServerAddress = Schema.is(ServerAddress);
 
 const pngSize = async (
   path: string,
@@ -26,30 +22,12 @@ const pngSize = async (
   return [png.readUInt32BE(16), png.readUInt32BE(20)];
 };
 
-const availablePort = (): Promise<number> =>
-  new Promise((resolve, reject) => {
-    const server = createNetServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!isServerAddress(address)) {
-        server.close();
-        reject(new Error("Could not reserve a test port."));
-        return;
-      }
-      server.close((error) => {
-        if (error === undefined) resolve(address.port);
-        else reject(error);
-      });
-    });
-  });
-
 describe("preview capture", () => {
   it("uses Playwright options for both targets and keeps Preview capture rules", async () => {
     const root = await mkdtemp(join(tmpdir(), "preview-capture-"));
-    const port = await availablePort();
     const plugin = preview({
       capture: {
+        concurrency: 2,
         playwright: {
           launch: { args: ["--user-agent=PreviewPlaywrightLaunch"] },
           context: { colorScheme: "dark", locale: "fr-FR" },
@@ -60,7 +38,7 @@ describe("preview capture", () => {
           fixed: { width: 160, height: 90, deviceScaleFactor: 2 },
           full: { width: 160, height: "full" },
         },
-        timeoutMs: 2_000,
+        timeoutMs: 5_000,
       },
     });
 
@@ -105,7 +83,9 @@ export default preview({
     root.style.height = "700px";
     root.style.minHeight = "100vh";
     ready();
-    return () => new Promise(() => undefined);
+    return window.innerHeight === 90
+      ? () => new Promise(() => undefined)
+      : () => undefined;
   }
 });`,
       ),
@@ -124,6 +104,7 @@ export default application({
     ]);
 
     const server = await createServer({
+      cacheDir: join(root, ".vite"),
       configFile: false,
       logLevel: "silent",
       mode: "preview-cli",
@@ -145,7 +126,7 @@ export default application({
         ],
       },
       root,
-      server: { host: "127.0.0.1", port, strictPort: true },
+      server: { host: "127.0.0.1", port: 0 },
     });
 
     try {
@@ -168,7 +149,16 @@ export default application({
         Generation.GenerationSummary,
       )(value);
 
-      strictEqual(summary.failures.length, 1);
+      strictEqual(
+        summary.failures.length,
+        1,
+        summary.failures
+          .map(
+            ({ source, variant, viewport, message }) =>
+              `${source}${variant === undefined ? "" : ` variant ${variant}`}${viewport === undefined ? "" : ` at ${viewport}`}: ${message}`,
+          )
+          .join("\n"),
+      );
       const failure = summary.failures[0];
       if (failure === undefined) throw new Error("The failure is missing.");
       assertInclude(failure.source, "External.preview.ts");
@@ -196,6 +186,108 @@ export default application({
         [160, 90],
         [160, 720],
       ]);
+    } finally {
+      await server.close();
+      await rm(root, { force: true, recursive: true });
+    }
+  }, 30_000);
+
+  it("blocks external browser requests for both targets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "preview-external-"));
+    const plugin = preview({
+      capture: {
+        timeoutMs: 2_000,
+        viewports: { test: { width: 100, height: 100 } },
+      },
+    });
+
+    await Promise.all([
+      writeFile(
+        join(root, "index.html"),
+        `<!doctype html><html><body><script type="module" src="/app.ts"></script></body></html>`,
+      ),
+      writeFile(
+        join(root, "app.ts"),
+        `import { ready } from "@nmnmcc/preview/application";
+await fetch("https://example.com/application").catch(() => undefined);
+ready();`,
+      ),
+      writeFile(
+        join(root, "Application.preview.ts"),
+        `import { application } from "@nmnmcc/preview/application";
+export default application({ location: "/" });`,
+      ),
+      writeFile(
+        join(root, "Sandbox.preview.ts"),
+        `import { preview } from "@nmnmcc/preview";
+export default preview({
+  mount: async ({ root, ready }) => {
+    await fetch("https://example.com/sandbox").catch(() => undefined);
+    root.textContent = "blocked";
+    ready();
+    return () => undefined;
+  }
+});`,
+      ),
+    ]);
+
+    const server = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      mode: "preview-cli",
+      plugins: [plugin],
+      resolve: {
+        alias: [
+          {
+            find: "@nmnmcc/preview/application",
+            replacement: fileURLToPath(
+              new URL("../src/Application.ts", import.meta.url),
+            ),
+          },
+          {
+            find: /^@nmnmcc\/preview$/,
+            replacement: fileURLToPath(
+              new URL("../src/browser.ts", import.meta.url),
+            ),
+          },
+        ],
+      },
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    });
+
+    try {
+      const decodedControl = PluginControl.decode(plugin);
+      if (Result.isFailure(decodedControl)) {
+        throw new Error("The preview plugin control is missing.");
+      }
+      await Reflect.apply(
+        decodedControl.success.prepareCli,
+        decodedControl.success,
+        [],
+      );
+      await server.listen();
+      const value: unknown = await Reflect.apply(
+        decodedControl.success.generate,
+        decodedControl.success,
+        [],
+      );
+      const summary = await Schema.decodeUnknownPromise(
+        Generation.GenerationSummary,
+      )(value);
+
+      deepStrictEqual(summary.artifacts, []);
+      strictEqual(summary.failures.length, 2);
+      deepStrictEqual(
+        summary.failures.map(({ source }) => source.slice(root.length + 1)),
+        ["Application.preview.ts", "Sandbox.preview.ts"],
+      );
+      const messages = summary.failures
+        .map(({ message }) => message)
+        .join("\n");
+      assertInclude(messages, "External requests are not allowed");
+      assertInclude(messages, "https://example.com/application");
+      assertInclude(messages, "https://example.com/sandbox");
     } finally {
       await server.close();
       await rm(root, { force: true, recursive: true });

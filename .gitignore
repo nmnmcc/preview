@@ -3,6 +3,7 @@ devenv.local.nix
 devenv.local.yaml
 
 .direnv
+.venv
 
 .pre-commit-config.yaml
 

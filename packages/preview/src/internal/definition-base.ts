@@ -8,9 +8,7 @@ export interface PreviewTargetBase {
   readonly type: string;
 }
 
-export interface PreviewDefinitionOf<
-  Target extends PreviewTargetBase,
-> {
+export interface PreviewDefinitionOf<Target extends PreviewTargetBase> {
   readonly [PreviewDefinitionTypeId]: true;
   readonly metadata: PreviewMetadata;
   readonly target: Target;

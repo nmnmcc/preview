@@ -1,7 +1,4 @@
-import {
-  makeDefinition,
-  type PreviewDefinitionOf,
-} from "./definition-base";
+import { makeDefinition, type PreviewDefinitionOf } from "./definition-base";
 import type { PreviewMetadata } from "./preview-metadata";
 
 export const ApplicationDefinitionCodeSignature =
@@ -17,8 +14,7 @@ export interface ApplicationTarget {
   readonly location: ApplicationLocation;
 }
 
-export interface ApplicationDefinition
-  extends PreviewDefinitionOf<ApplicationTarget> {
+export interface ApplicationDefinition extends PreviewDefinitionOf<ApplicationTarget> {
   readonly [ApplicationDefinitionTypeId]: true;
 }
 

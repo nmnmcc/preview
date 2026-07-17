@@ -1,87 +1,83 @@
 # @nmnmcc/preview-svelte
 
-Define Svelte 5 previews for `@nmnmcc/preview`.
+Define Svelte Component previews for `@nmnmcc/preview`.
 
-Add Preview to an existing Svelte Vite project. The project already has
-Svelte, Vite, and `@sveltejs/vite-plugin-svelte`. Add Preview, the required
-Effect version, and Playwright:
+Requires Svelte 5 and Node 24 or later.
+
+## Full guide
+
+Install the public [`preview` skill](https://github.com/nmnmcc/preview/tree/main/skills/preview):
 
 ```sh
-yarn add -D @nmnmcc/preview @nmnmcc/preview-svelte effect@4.0.0-beta.98 playwright
+npx skills add nmnmcc/preview --skill preview
+```
+
+Use `$preview` for Application routes, matrices, capture settings, and artifact
+generation.
+
+## Minimal setup
+
+Add Preview to an existing Svelte Vite project:
+
+```sh
+yarn add -D @nmnmcc/preview @nmnmcc/preview-svelte playwright@^1.61.0
 yarn playwright install chromium
 ```
 
-Register Preview after the Svelte plugin:
+Put Preview after `svelte()` in `vite.config.ts`:
 
 ```ts
-import preview from "@nmnmcc/preview"
-import { svelte } from "@sveltejs/vite-plugin-svelte"
+import preview from "@nmnmcc/preview";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { defineConfig } from "vite";
 
-export default {
+export default defineConfig({
   plugins: [
     svelte(),
     preview({
       capture: {
         viewports: {
-          desktop: { width: 1440, height: 900 }
-        }
-      }
-    })
-  ]
-}
+          desktop: { width: 1440, height: 900 },
+        },
+      },
+    }),
+  ],
+});
 ```
 
-Use a component and a typed props function in each preview file:
+Add `Card.preview.ts`:
 
 ```ts
-import { preview } from "@nmnmcc/preview-svelte"
-import Card from "./Card.svelte"
+import { preview } from "@nmnmcc/preview-svelte";
+import Card from "./Card.svelte";
 
 export default preview({
   component: Card,
-  props: ({ ready }) => ({
-    title: "Ready",
-    ready
-  })
-})
+  props: ({ ready }) => ({ ready }),
+});
 ```
 
-The props must match the component. Call `ready()` after Svelte commits the
-final UI. Preview unmounts the component after capture.
-
-Use an Application preview for a SvelteKit route that reads `$app/*`, runs a
-`load` function, or needs server rendering. Do not mock those modules in a
-component preview.
-
-Use SvelteKit's typed `resolve()` helper in the preview file:
-
-```ts
-import { application } from "@nmnmcc/preview/application"
-import { resolve } from "$app/paths"
-
-export default application({
-  location: resolve("/items/[id]", { id: "42" })
-})
-```
-
-Call the Application `ready()` function from the route:
+Call the given function after the component is mounted:
 
 ```svelte
 <script lang="ts">
-  import { ready } from "@nmnmcc/preview/application"
-  import { onMount } from "svelte"
+  import type { PreviewReady } from "@nmnmcc/preview";
+  import { onMount } from "svelte";
+
+  let { ready }: { readonly ready: PreviewReady } = $props();
 
   preview: {
-    onMount(ready)
+    onMount(ready);
   }
 </script>
+
+<article>Hello Preview</article>
 ```
 
-Preview keeps the block in the development server. Each production Vite build
-removes the full block from its output.
+Keep capture-only lifecycle work in an exact lowercase `preview: { ... }`
+block.
 
-The component adapter uses Svelte's public `mount()` and `unmount()` functions.
-TypeScript checks the preview props against the selected component.
+Run `yarn preview generate Card.preview.ts`. Preview unmounts the component
+after capture.
 
-Requires Svelte 5 and Node 24 or later.
 Licensed under Apache-2.0.

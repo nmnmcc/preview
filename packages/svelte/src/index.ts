@@ -5,26 +5,23 @@ import {
   type PreviewReady,
 } from "@nmnmcc/preview";
 import {
+  mount,
+  unmount,
   type Component,
   type ComponentProps,
   type MountOptions,
-  mount,
-  unmount,
 } from "svelte";
 
 // Svelte uses this same bound for helpers which infer a component's props.
 type SvelteComponent = Component<any>;
 
-export interface SveltePreviewOptions<
-  TComponent extends SvelteComponent,
-> extends Preview.PreviewMetadata {
+export interface SveltePreviewOptions<TComponent extends SvelteComponent>
+  extends Preview.PreviewMetadata {
   readonly component: TComponent;
   readonly props: (options: {
     readonly ready: PreviewReady;
   }) => ComponentProps<TComponent>;
-  readonly context?: MountOptions<
-    ComponentProps<TComponent>
-  >["context"];
+  readonly context?: MountOptions<ComponentProps<TComponent>>["context"];
 }
 
 export const preview = <TComponent extends SvelteComponent>(

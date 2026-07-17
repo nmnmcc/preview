@@ -6,19 +6,23 @@ Each directory is a small application that can run on its own. The React,
 React Router, Vue, Svelte, and SvelteKit projects have the same basic component
 card. Each one also has a framework-specific example.
 
-| Directory | Framework setup | Extra example |
-| --- | --- | --- |
-| `react` | React with Vite | React Context and a locale/theme matrix |
-| `react-router` | React Router framework mode | A typed route with a loader |
-| `vue` | Vue with Vite | A provide/inject theme template |
-| `svelte` | Svelte with Vite | A mount context |
-| `sveltekit` | SvelteKit | A typed route with a server load |
-| `vinext-app` | vinext App Router | An application route |
-| `vinext-pages` | vinext Pages Router | An application route |
+| Directory      | Framework setup             | Extra example                           |
+| -------------- | --------------------------- | --------------------------------------- |
+| `react`        | React with Vite             | React Context and a locale/theme matrix |
+| `react-router` | React Router framework mode | A typed route with a loader             |
+| `vue`          | Vue with Vite               | A provide/inject theme template         |
+| `svelte`       | Svelte with Vite            | A mount context                         |
+| `sveltekit`    | SvelteKit                   | A typed route with a server load        |
+| `vinext-app`   | vinext App Router           | An application route                    |
+| `vinext-pages` | vinext Pages Router         | An application route                    |
 
 The router projects show both forms. Their component previews do not use router
 state. Their Application previews open real routes and call `ready()` from
 those routes.
+
+The shared Component examples accept an optional `ready` prop. They put its
+lifecycle work in `preview: { ... }`, so application production builds remove
+that work.
 
 Keep each `*.preview.*` file next to the component or route that it covers.
 This also applies to Application previews. The vinext Pages example uses
@@ -28,7 +32,7 @@ without becoming routes.
 Every project uses the complete Tailwind viewport preset group. Each preview
 gets an image for `base`, `sm`, `md`, `lg`, `xl`, and `2xl`.
 Each project sets `artifacts.clean` so a full generation removes old Preview
-images from output directories with valid markers.
+images from output directories.
 
 The React Vite setup also shows the optional `files.include` and
 `files.exclude` file path patterns. Exclude takes priority when both patterns

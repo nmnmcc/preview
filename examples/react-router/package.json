@@ -6,9 +6,10 @@
     "node": ">=24"
   },
   "scripts": {
+    "build": "react-router build",
     "dev": "react-router dev",
     "generate": "preview",
-    "typecheck": "react-router typegen && tsc -p tsconfig.json --noEmit"
+    "typecheck": "react-router typegen && yarn run -T tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@nmnmcc/preview": "workspace:*",
@@ -24,7 +25,6 @@
   "devDependencies": {
     "@react-router/dev": "8.2.0",
     "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
-    "typescript": "6.0.3"
+    "@types/react-dom": "19.2.3"
   }
 }

@@ -5,10 +5,10 @@
 This project uses Devenv as its supported development environment. The setup
 is in `devenv.nix`, `devenv.yaml`, and `devenv.lock`.
 
-Devenv provides Node.js 26, Yarn, Git, and a headless Chromium build. The
-Chromium build must match the Playwright version in this workspace. The Nix
-setup checks this match before it opens the shell. It also sets Playwright to
-use the Nix browser and skip its own browser download.
+Devenv provides Node.js 26, Yarn, Git, Python 3.14, uv, and a headless Chromium
+build. The Chromium build must match the Playwright version in this workspace.
+The Nix setup checks this match before it opens the shell. It also sets
+Playwright to use the Nix browser and skip its own browser download.
 
 Set up a clone and open the shell:
 
@@ -29,6 +29,11 @@ yarn install
 Do not run `yarn playwright install chromium` inside the Devenv shell. Devenv
 already provides the browser.
 
+Devenv creates a Python virtual environment in its state directory. It runs
+`uv sync --locked` before the shell opens. `pyproject.toml` and `uv.lock` are
+the source of truth for Python tools. Change both files together when a Python
+tool version changes.
+
 ## Repository layout
 
 - `packages/preview` holds the `@nmnmcc/preview` package.
@@ -37,6 +42,7 @@ already provides the browser.
 - `packages/vue` holds the Vue package.
 - `examples` holds the end-to-end test projects.
 - `test/e2e` holds the Vitest checks for generated example files.
+- `skills/preview` holds the public Preview agent skill.
 - `references` holds the fixed Vite and Effect source trees.
 
 Public source files in `packages/preview/src` document and re-export the API.
@@ -84,6 +90,19 @@ readonly. Change an existing preset only in a breaking release.
 Keep the package's Effect dependency and peer dependency on the same exact
 version. Keep the CLI binary entry at `./dist/main.mjs`.
 
+## Agent skill
+
+Keep the public skill in `skills/preview`. Keep its `SKILL.md` short. Put full
+user workflows in its direct `references` directory. Do not add nested
+reference directories.
+
+Update the skill when a public package behavior, requirement, command, or
+example changes. Keep package README files short. Each README has the smallest
+working setup for that package and points to the skill for the full guide.
+
+Keep the skill metadata in `agents/openai.yaml`. Its default prompt must name
+`$preview`. Run `yarn check:skill` after every skill change.
+
 ## Naming
 
 - Use PascalCase for module constants that define fixed rules or default
@@ -92,6 +111,13 @@ version. Keep the CLI binary entry at `./dist/main.mjs`.
   framework conventions. Use PascalCase for types, classes, components, and
   schemas that act as type constructors. Use camelCase for functions, methods,
   effects, flags, test fixtures, and ordinary runtime values.
+
+## Product language
+
+Present Preview as a way to define, run, and inspect repeatable UI previews.
+PNG artifacts are one current output, not the product boundary. State what
+Preview does. Do not define it with a list of unrelated features that it does
+not have.
 
 ## Effect
 
@@ -162,14 +188,16 @@ Do not copy either kind of rule into test code.
 Run the checks from the workspace root:
 
 ```sh
+yarn check:skill
 yarn test
 yarn typecheck
 yarn test:e2e
 ```
 
-`yarn test` runs the unit tests. `yarn typecheck` builds the packages and checks
-all workspace types. `yarn test:e2e` builds the packages, makes all example PNG
-files, and checks them with Vitest.
+`yarn check:skill` validates the public Agent Skill with the Python tool locked
+in `uv.lock`. `yarn test` runs the unit tests. `yarn typecheck` builds the
+packages and checks all workspace types. `yarn test:e2e` builds the packages,
+makes all example PNG files, and checks them with Vitest.
 
 ## Documentation language
 

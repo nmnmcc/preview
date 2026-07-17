@@ -1,6 +1,6 @@
 {
   "name": "@nmnmcc/preview-vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Define Vue previews for @nmnmcc/preview",
   "type": "module",
   "license": "Apache-2.0",
@@ -24,7 +24,7 @@
   "scripts": {
     "build": "yarn --cwd ../.. tsdown -F @nmnmcc/preview-vue",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "yarn run -T tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@nmnmcc/preview": "workspace:^"
@@ -35,7 +35,6 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.7",
     "playwright": "1.61.1",
-    "typescript": "7.0.2",
     "vite": "8.1.4",
     "vitest": "4.1.10",
     "vue": "3.5.39"

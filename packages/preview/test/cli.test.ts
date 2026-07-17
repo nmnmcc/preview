@@ -1,5 +1,10 @@
+import process from "node:process";
+import { stripVTControlCharacters } from "node:util";
+import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
+import * as NodeStdio from "@effect/platform-node-shared/NodeStdio";
+import * as NodeTerminal from "@effect/platform-node-shared/NodeTerminal";
 import { describe, it } from "@effect/vitest";
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
@@ -7,12 +12,23 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as TestConsole from "effect/testing/TestConsole";
+import { Command } from "effect/unstable/cli";
 import * as Cli from "../src/internal/cli/cli";
-import type * as Generation from "../src/internal/generation";
+import previewCommand from "../src/internal/cli/commands/preview";
 import * as ProjectRunner from "../src/internal/cli/services/ProjectRunner";
+import type * as Generation from "../src/internal/generation";
 
 const root = "/project";
 const options: ProjectRunner.GenerateOptions = { root, paths: [] };
+const ViteTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+});
+const testTime = ViteTimeFormatter.format(new Date(0));
+
+const plainLines = (lines: ReadonlyArray<unknown>): ReadonlyArray<string> =>
+  lines.map((line) => stripVTControlCharacters(String(line)));
 
 const runnerLayer = (generate: ProjectRunner.Interface["generate"]) =>
   Layer.succeed(
@@ -23,28 +39,109 @@ const runnerLayer = (generate: ProjectRunner.Interface["generate"]) =>
 const cliLayer = (runner: Layer.Layer<ProjectRunner.ProjectRunner>) =>
   Layer.merge(NodePath.layer, runner);
 
+const commandBaseLayer = Layer.mergeAll(
+  NodeFileSystem.layer,
+  NodePath.layer,
+  NodeStdio.layer,
+  NodeTerminal.layer,
+);
+
+const commandLayer = (runner: Layer.Layer<ProjectRunner.ProjectRunner>) =>
+  Layer.mergeAll(
+    commandBaseLayer,
+    NodeChildProcessSpawner.layer.pipe(Layer.provide(commandBaseLayer)),
+    runner,
+  );
+
 describe("preview CLI", () => {
+  it.effect("parses the default command output override", () => {
+    const received: Array<ProjectRunner.GenerateOptions> = [];
+
+    return Effect.gen(function* () {
+      yield* Command.runWith(previewCommand, { version: "test" })([
+        "--output",
+        "artifacts/previews",
+      ]);
+
+      deepStrictEqual(received, [
+        {
+          root: process.cwd(),
+          paths: [],
+          output: "artifacts/previews",
+        },
+      ]);
+    }).pipe(
+      Effect.provide(
+        commandLayer(
+          runnerLayer(
+            Effect.fnUntraced(function* (options) {
+              received.push(options);
+              return { artifacts: [], failures: [] };
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it.effect("parses generate root, output, and source paths", () => {
+    const received: Array<ProjectRunner.GenerateOptions> = [];
+
+    return Effect.gen(function* () {
+      yield* Command.runWith(previewCommand, { version: "test" })([
+        "generate",
+        "--root",
+        process.cwd(),
+        "--output",
+        "images",
+        "src/Card.preview.tsx",
+        "src/**/*.preview.tsx",
+      ]);
+
+      deepStrictEqual(received, [
+        {
+          root: process.cwd(),
+          paths: ["src/Card.preview.tsx", "src/**/*.preview.tsx"],
+          output: "images",
+        },
+      ]);
+    }).pipe(
+      Effect.provide(
+        commandLayer(
+          runnerLayer(
+            Effect.fnUntraced(function* (options) {
+              received.push(options);
+              return { artifacts: [], failures: [] };
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
   it.effect("forwards a source-relative output override", () =>
     Cli.generate({
-        ...options,
-        output: "artifacts/previews",
-      }).pipe(
+      ...options,
+      output: "artifacts/previews",
+    }).pipe(
       Effect.provide(
         cliLayer(
-          runnerLayer(Effect.fnUntraced(function* (received) {
-            deepStrictEqual(received, {
-              root,
-              paths: [],
-              output: "artifacts/previews",
-            });
-            return { artifacts: [], failures: [] };
-          })),
+          runnerLayer(
+            Effect.fnUntraced(function* (received) {
+              deepStrictEqual(received, {
+                root,
+                paths: [],
+                output: "artifacts/previews",
+              });
+              return { artifacts: [], failures: [] };
+            }),
+          ),
         ),
       ),
     ),
   );
 
-  it.effect("reports generated artifact paths relative to the project", () => {
+  it.effect("reports artifact paths relative to the preview file", () => {
     const summary: Generation.GenerationSummary = {
       artifacts: [
         {
@@ -61,15 +158,17 @@ describe("preview CLI", () => {
     return Effect.gen(function* () {
       yield* Cli.generate(options);
 
-      deepStrictEqual(yield* TestConsole.logLines, [
-        "generated src/.preview/Card.preview.tsx/state=ready.desktop.png",
+      deepStrictEqual(plainLines(yield* TestConsole.logLines), [
+        `${testTime} [preview] Card -> .preview/Card.preview.tsx/state=ready.desktop.png`,
       ]);
     }).pipe(
       Effect.provide(
         cliLayer(
-          runnerLayer(Effect.fnUntraced(function* () {
-            return summary;
-          })),
+          runnerLayer(
+            Effect.fnUntraced(function* () {
+              return summary;
+            }),
+          ),
         ),
       ),
     );
@@ -91,13 +190,17 @@ describe("preview CLI", () => {
       const error = yield* Effect.flip(Cli.generate(options));
 
       strictEqual(error._tag, "PreviewCliError");
-      deepStrictEqual(yield* TestConsole.errorLines, ["Render failed."]);
+      deepStrictEqual(plainLines(yield* TestConsole.errorLines), [
+        `${testTime} [preview] Card -> Render failed.`,
+      ]);
     }).pipe(
       Effect.provide(
         cliLayer(
-          runnerLayer(Effect.fnUntraced(function* () {
-            return summary;
-          })),
+          runnerLayer(
+            Effect.fnUntraced(function* () {
+              return summary;
+            }),
+          ),
         ),
       ),
     );
@@ -115,9 +218,11 @@ describe("preview CLI", () => {
     }).pipe(
       Effect.provide(
         cliLayer(
-          runnerLayer(Effect.fnUntraced(function* () {
-            return yield* runnerError;
-          })),
+          runnerLayer(
+            Effect.fnUntraced(function* () {
+              return yield* runnerError;
+            }),
+          ),
         ),
       ),
     );

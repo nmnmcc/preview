@@ -2,17 +2,14 @@ import { strictEqual } from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as Schema from "effect/Schema";
 import preview from "@nmnmcc/preview";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import * as Schema from "effect/Schema";
 import { build } from "vite";
 import { describe, it } from "vitest";
 
 const workspaceRoot = resolve(
   fileURLToPath(new URL("../../../", import.meta.url)),
-);
-const applicationEntry = fileURLToPath(
-  new URL("../../preview/src/Application.ts", import.meta.url),
 );
 
 const BuildOutput = Schema.Struct({
@@ -43,10 +40,16 @@ describe("Svelte production builds", () => {
         "package.json": JSON.stringify({ private: true, type: "module" }),
         "src/main.ts": `import App from "./App.svelte"; console.log(App);`,
         "src/App.svelte": `<script lang="ts">
-  import { ready } from "@nmnmcc/preview/application";
+  import type { PreviewReady } from "@nmnmcc/preview";
   import { onMount } from "svelte";
+
+  let { ready }: { readonly ready?: PreviewReady } = $props();
+
   preview: {
-    onMount(ready);
+    onMount(() => {
+      console.log("svelte-preview-only");
+      ready?.();
+    });
   }
   const message = "svelte-kept";
 </script>
@@ -80,19 +83,11 @@ describe("Svelte production builds", () => {
               },
             }),
           ],
-          resolve: {
-            alias: [
-              {
-                find: "@nmnmcc/preview/application",
-                replacement: applicationEntry,
-              },
-            ],
-          },
           root,
         }),
       );
       strictEqual(code.includes("svelte-kept"), true);
-      strictEqual(code.includes("application-ready"), false);
+      strictEqual(code.includes("svelte-preview-only"), false);
       strictEqual(code.includes("preview:"), false);
     } finally {
       await rm(root, { force: true, recursive: true });

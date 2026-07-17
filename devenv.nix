@@ -32,6 +32,7 @@ in
   env = {
     PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+    UV_DEFAULT_INDEX = "https://pypi.org/simple";
   };
 
   languages.javascript = {
@@ -39,5 +40,20 @@ in
     package = pkgs.nodejs-slim_26;
     yarn.enable = true;
     yarn.install.enable = true;
+  };
+
+  languages.python = {
+    enable = true;
+    package = pkgs.python314;
+    lsp.enable = false;
+    venv.enable = true;
+    uv = {
+      enable = true;
+      package = pkgs.uv;
+      sync = {
+        enable = true;
+        arguments = [ "--locked" ];
+      };
+    };
   };
 }

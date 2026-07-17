@@ -6,16 +6,7 @@
     "declarationMap": false,
     "jsx": "react-jsx",
     "noEmit": true,
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "types": ["node", "vite/client"]
   },
-  "include": [
-    ".next/types",
-    "next-env.d.ts",
-    "app",
-    "src",
-    "vite.config.ts"
-  ]
+  "include": [".next/types", "next-env.d.ts", "app", "src", "vite.config.ts"]
 }

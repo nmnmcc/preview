@@ -1,9 +1,5 @@
 import { describe, it } from "@effect/vitest";
-import {
-  assertTrue,
-  deepStrictEqual,
-  strictEqual,
-} from "@effect/vitest/utils";
+import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { application } from "../src/Application";
@@ -44,12 +40,12 @@ describe("public preview API", () => {
       throw new Error("The preview definition type ID is missing.");
     }
 
-    const missingTypeId = Schema.decodeUnknownResult(
-      Preview.PreviewDefinition,
-    )({
-      metadata: {},
-      target: { type: "sandbox", mount: () => () => undefined },
-    });
+    const missingTypeId = Schema.decodeUnknownResult(Preview.PreviewDefinition)(
+      {
+        metadata: {},
+        target: { type: "sandbox", mount: () => () => undefined },
+      },
+    );
     const invalidMetadata = Schema.decodeUnknownResult(
       Preview.PreviewDefinition,
     )({
@@ -57,13 +53,13 @@ describe("public preview API", () => {
       metadata: { viewports: { mobile: { height: "invalid" } } },
       target: { type: "sandbox", mount: () => () => undefined },
     });
-    const invalidTarget = Schema.decodeUnknownResult(
-      Preview.PreviewDefinition,
-    )({
-      [definitionTypeId]: true,
-      metadata: {},
-      target: { type: "sandbox", mount: "invalid" },
-    });
+    const invalidTarget = Schema.decodeUnknownResult(Preview.PreviewDefinition)(
+      {
+        [definitionTypeId]: true,
+        metadata: {},
+        target: { type: "sandbox", mount: "invalid" },
+      },
+    );
     const fabricatedApplication = Schema.decodeUnknownResult(
       Preview.PreviewDefinition,
     )({

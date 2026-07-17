@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node-shared/NodePath";
 import { describe, it } from "@effect/vitest";
 import {
   assertFalse,
@@ -29,6 +30,7 @@ const options: Config.ResolvedPreviewOptions = {
   include: ["**/*.preview.ts"],
   exclude: [],
   output: ".preview",
+  concurrency: 1,
   timeoutMs: 30_000,
 };
 
@@ -55,7 +57,7 @@ const makeServer = (
 
 const makeControllerLayer = (
   renderProject: Renderer.Interface["renderProject"],
-  ownedByOutput: Readonly<Record<string, ReadonlyArray<string>>> = {},
+  directoriesByOutput: Readonly<Record<string, ReadonlyArray<string>>> = {},
 ) => {
   const configLayer = Layer.succeed(
     Config.Config,
@@ -87,11 +89,15 @@ const makeControllerLayer = (
       }),
       isPathInDirectory: (file, directory) =>
         file === directory || file.startsWith(`${directory}/`),
-      ownedDirectories: Effect.fnUntraced(function* (_root, outputs) {
+      outputDirectories: Effect.fnUntraced(function* (_root, outputs) {
         return new Set(
-          outputs.flatMap((output) => ownedByOutput[output] ?? []),
+          outputs.flatMap((output) => directoriesByOutput[output] ?? []),
         );
       }),
+      outputDirectory: (source, output) => {
+        const separator = source.lastIndexOf("/");
+        return `${source.slice(0, separator)}/${output}`;
+      },
       sourceDirectory: (source, output) => {
         const separator = source.lastIndexOf("/");
         return `${source.slice(0, separator)}/${output}/${source.slice(separator + 1)}`;
@@ -104,7 +110,12 @@ const makeControllerLayer = (
 
   return PluginController.layer.pipe(
     Layer.provide(
-      Layer.mergeAll(artifactsLayer, configLayer, rendererLayer),
+      Layer.mergeAll(
+        artifactsLayer,
+        configLayer,
+        NodePath.layer,
+        rendererLayer,
+      ),
     ),
   );
 };
@@ -180,10 +191,7 @@ describe("preview plugin controller", () => {
           {
             root: "/project",
             baseUrl: "http://preview.test",
-            filters: [
-              "/project/A.preview.ts",
-              "/project/B.preview.ts",
-            ],
+            filters: ["/project/A.preview.ts", "/project/B.preview.ts"],
           },
         ]);
         deepStrictEqual(unwatched, []);
@@ -242,9 +250,7 @@ describe("preview plugin controller", () => {
         yield* controller.configure(project);
         yield* controller.attach(makeServer());
 
-        const error = yield* Effect.flip(
-          controller.generate({ paths: [42] }),
-        );
+        const error = yield* Effect.flip(controller.generate({ paths: [42] }));
         strictEqual(error._tag, "PreviewConfigError");
         strictEqual(
           error.message,
@@ -255,7 +261,7 @@ describe("preview plugin controller", () => {
     }),
   );
 
-  it.effect("applies every owned directory when the server changes", () =>
+  it.effect("applies every output directory when the server changes", () =>
     Effect.gen(function* () {
       const firstUnwatched: Array<string> = [];
       const secondUnwatched: Array<string> = [];
@@ -271,18 +277,18 @@ describe("preview plugin controller", () => {
         yield* controller.attach(makeServer(secondUnwatched));
 
         deepStrictEqual(firstUnwatched, [
-          "/project/src/.preview/A.preview.ts",
-          "/project/src/images/B.preview.ts",
+          "/project/src/.preview",
+          "/project/src/images",
         ]);
         deepStrictEqual(secondUnwatched, [
-          "/project/src/.preview/A.preview.ts",
-          "/project/src/images/B.preview.ts",
+          "/project/src/.preview",
+          "/project/src/images",
         ]);
       }).pipe(
         Effect.provide(
           makeControllerLayer(renderProject, {
-            ".preview": ["/project/src/.preview/A.preview.ts"],
-            images: ["/project/src/images/B.preview.ts"],
+            ".preview": ["/project/src/.preview"],
+            images: ["/project/src/images"],
           }),
         ),
       );
@@ -312,9 +318,9 @@ describe("preview plugin controller", () => {
     }),
   );
 
-  it.effect("ignores only exact owned artifact directories", () =>
+  it.effect("ignores the complete output directory", () =>
     Effect.gen(function* () {
-      const artifactDirectory = "/project/src/Card.preview.ts";
+      const outputDirectory = "/project/src";
       const renderProject = Effect.fnUntraced(function* () {
         return emptySummary;
       });
@@ -326,17 +332,14 @@ describe("preview plugin controller", () => {
         yield* controller.generate({ output: "src" });
 
         strictEqual(
-          yield* controller.isOutputPath(`${artifactDirectory}/mobile.png`),
+          yield* controller.isOutputPath(`${outputDirectory}/mobile.png`),
           true,
         );
-        strictEqual(
-          yield* controller.isOutputPath("/project/src/logo.png"),
-          false,
-        );
+        strictEqual(yield* controller.isOutputPath("/project/logo.png"), false);
       }).pipe(
         Effect.provide(
           makeControllerLayer(renderProject, {
-            src: [artifactDirectory],
+            src: [outputDirectory],
           }),
         ),
       );

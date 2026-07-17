@@ -6,9 +6,10 @@
     "node": ">=24"
   },
   "scripts": {
+    "build": "vite build",
     "dev": "vite",
     "generate": "preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "yarn run -T tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@nmnmcc/preview": "workspace:*",
@@ -21,7 +22,6 @@
   "devDependencies": {
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.3",
-    "typescript": "6.0.3"
+    "@vitejs/plugin-react": "6.0.3"
   }
 }

@@ -1,7 +1,4 @@
-export type PreviewViewportHeight =
-  | number
-  | "full"
-  | `full-${number}`;
+export type PreviewViewportHeight = number | "full" | `full-${number}`;
 
 export interface PreviewViewport {
   readonly width: number;

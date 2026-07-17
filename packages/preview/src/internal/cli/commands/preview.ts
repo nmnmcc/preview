@@ -15,7 +15,7 @@ export default Command.make("preview", { output: outputFlag }, ({ output }) =>
   }),
 ).pipe(
   Command.withDescription(
-    "Render Vite preview modules to PNG files. Run without a subcommand to generate all previews.",
+    "Run repeatable UI previews with the current Vite project. Run without a subcommand to generate all previews.",
   ),
   Command.withExamples([
     {

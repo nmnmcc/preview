@@ -25,10 +25,12 @@ const {
 
 const confirmed = ref(false);
 
-onMounted(async () => {
-  await nextTick();
-  ready?.();
-});
+preview: {
+  onMounted(async () => {
+    await nextTick();
+    ready?.();
+  });
+}
 </script>
 
 <template>

@@ -1,7 +1,7 @@
 {
   "name": "@nmnmcc/preview",
-  "version": "0.1.0",
-  "description": "Render Vite preview modules to PNG files",
+  "version": "0.2.0",
+  "description": "Define, run, and inspect UI previews with Vite",
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": [
@@ -40,13 +40,14 @@
   },
   "scripts": {
     "build": "yarn --cwd ../.. tsdown -F @nmnmcc/preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "yarn run -T tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@effect/platform-browser": "4.0.0-beta.98",
     "@effect/platform-node-shared": "4.0.0-beta.98",
-    "effect": "4.0.0-beta.98"
+    "effect": "4.0.0-beta.98",
+    "picocolors": "^1.1.1"
   },
   "peerDependencies": {
     "effect": "4.0.0-beta.98",
@@ -56,7 +57,6 @@
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.98",
     "playwright": "1.61.1",
-    "typescript": "7.0.2",
     "vite": "8.1.4",
     "vitest": "4.1.10"
   },

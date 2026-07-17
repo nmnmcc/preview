@@ -2,9 +2,7 @@
   "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
     "composite": true,
-    "customConditions": [
-      "development"
-    ],
+    "customConditions": ["development"],
     "declaration": true,
     "declarationMap": true,
     "exactOptionalPropertyTypes": true,

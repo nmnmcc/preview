@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import * as NodeRuntime from "@effect/platform-node-shared/NodeRuntime";
 import { program } from "./program";
 

@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { ApplicationDefinitionCodeSignature } from "./definition";
-import { ApplicationReadyStateKey } from "./protocol";
+import { ApplicationReadyCodeSignature } from "./rpcs";
 
 export const ApplicationModuleId = "@nmnmcc/preview/application";
 export const PreviewLabel = "preview";
@@ -49,7 +49,7 @@ const hasPreviewLabel = (value: unknown): boolean => {
 const CodeSignatures = [
   {
     label: "Application ready runtime",
-    value: ApplicationReadyStateKey,
+    value: ApplicationReadyCodeSignature,
   },
   {
     label: "Application preview definition",
@@ -58,9 +58,9 @@ const CodeSignatures = [
 ] as const;
 
 /**
- * Finds Application Preview code in final build chunks.
+ * Finds Preview code in final build chunks.
  */
-export const findApplicationPreviewCode = (
+export const findProductionPreviewCode = (
   bundle: object,
   parse: (code: string) => unknown,
 ): Array<ProductionCodeMatch> => {
@@ -75,20 +75,14 @@ export const findApplicationPreviewCode = (
       }
     }
 
-    if (
-      PreviewLabelCandidate.test(code) &&
-      hasPreviewLabel(parse(code))
-    ) {
+    if (PreviewLabelCandidate.test(code) && hasPreviewLabel(parse(code))) {
       matches.push({
         chunk: fileName,
         match: `label ${PreviewLabel}:`,
       });
     }
 
-    const imports = [
-      ...(value.imports ?? []),
-      ...(value.dynamicImports ?? []),
-    ];
+    const imports = [...(value.imports ?? []), ...(value.dynamicImports ?? [])];
     if (imports.includes(ApplicationModuleId)) {
       matches.push({
         chunk: fileName,
@@ -106,5 +100,5 @@ export const formatProductionCodeError = (
   const details = matches
     .map((match) => `- ${match.chunk}: ${match.match}`)
     .join("\n");
-  return `[preview] Application Preview code remains in the production bundle for environment ${JSON.stringify(environment)}.\n${details}\nWrap capture-only lifecycle code in preview: { ... }. Set build: { check: false } only when this code is intentional.`;
+  return `[preview] Preview code remains in the production bundle for environment ${JSON.stringify(environment)}.\n${details}\nWrap capture-only lifecycle code in preview: { ... }. Set build: { check: false } only when this code is intentional.`;
 };

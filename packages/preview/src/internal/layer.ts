@@ -31,6 +31,6 @@ export const layer = (options: PreviewPluginOptions) => {
   );
 
   return PluginController.layer.pipe(
-    Layer.provide(Layer.mergeAll(artifacts, config, renderer)),
+    Layer.provide(Layer.mergeAll(artifacts, config, platform, renderer)),
   );
 };

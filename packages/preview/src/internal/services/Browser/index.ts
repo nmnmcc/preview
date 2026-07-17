@@ -1,25 +1,30 @@
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as RcRef from "effect/RcRef";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import {
-  type Browser as PlaywrightBrowser,
+  chromium,
   type BrowserContext,
   type BrowserContextOptions,
-  chromium,
-  errors,
+  type LaunchOptions,
   type Page,
   type PageScreenshotOptions,
+  type Browser as PlaywrightBrowser,
   type Route,
 } from "playwright";
 import type { PreviewPlaywrightOptions } from "../../../PreviewPlugin";
-import {
-  isFullPageViewportHeight,
-  viewportLayoutHeight,
-} from "../../preview";
+import { isFullPageViewportHeight, viewportLayoutHeight } from "../../preview";
 import * as Protocol from "../../protocol";
+import * as Rpcs from "../../rpcs";
+import * as RunnerEntry from "../../runner-entry";
 import type * as Config from "../Config";
+import * as PreviewRpcServer from "../PreviewRpcServer";
 
 export interface Request {
   readonly source: string;
@@ -49,10 +54,19 @@ export interface Session {
 }
 
 export interface Interface {
-  readonly launch: (
+  readonly session: (
     source: string,
   ) => Effect.Effect<Session, PreviewBrowserError, Scope.Scope>;
 }
+
+export type BrowserHandle = Pick<
+  PlaywrightBrowser,
+  "close" | "isConnected" | "newContext"
+>;
+
+export type BrowserLauncher = (
+  options: LaunchOptions,
+) => Promise<BrowserHandle>;
 
 export class PreviewBrowserError extends Schema.TaggedErrorClass<PreviewBrowserError>(
   "@nmnmcc/preview/PreviewBrowserError",
@@ -67,6 +81,12 @@ export class PreviewBrowserError extends Schema.TaggedErrorClass<PreviewBrowserE
     return this.detail;
   }
 }
+
+class PreviewBrowserLaunchError extends Schema.TaggedErrorClass<PreviewBrowserLaunchError>(
+  "@nmnmcc/preview/PreviewBrowserLaunchError",
+)("PreviewBrowserLaunchError", {
+  cause: Schema.Defect(),
+}) {}
 
 const formatUnknownError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -86,41 +106,52 @@ const browserFailure = (
     cause,
   });
 
-interface PageRequest extends Request {
-  readonly action: Protocol.PreviewAction;
-  readonly variant?: string;
+interface TargetRequest {
+  readonly source: string;
+  readonly variant?: string | undefined;
 }
 
-const requestTarget = (request: PageRequest): string =>
+interface PageRequest extends Request {
+  readonly rpcRequest: Rpcs.SandboxPreviewRequest;
+}
+
+const requestTarget = (request: TargetRequest): string =>
   request.variant === undefined
     ? request.source
     : `${request.source} variant ${JSON.stringify(request.variant)}`;
 
+const pageVariant = (request: PageRequest): string | undefined =>
+  request.rpcRequest._tag === "Render" ? request.rpcRequest.variant : undefined;
+
 const renderFailure = (
   request: PageRequest,
   cause: unknown,
-): PreviewBrowserError =>
-  browserFailure(
+): PreviewBrowserError => {
+  const variant = pageVariant(request);
+  return browserFailure(
     request.source,
-    `Could not run ${requestTarget(request)} at viewport ${request.viewport.name}: ${formatUnknownError(cause)}`,
+    `Could not run ${requestTarget({ source: request.source, variant })} at viewport ${request.viewport.name}: ${formatUnknownError(cause)}`,
     cause,
-    request.variant,
+    variant,
     request.viewport.name,
   );
+};
 
 const renderCompletionFailure = (
   request: PageRequest,
   cause: unknown,
-): PreviewBrowserError =>
-  browserFailure(
+): PreviewBrowserError => {
+  const variant = pageVariant(request);
+  return browserFailure(
     request.source,
-    request.action === "probe"
+    request.rpcRequest._tag === "Probe"
       ? `Preview probe did not finish within ${request.timeoutMs} ms for ${request.source}.`
-      : `Sandbox mount did not resolve and call ready() within ${request.timeoutMs} ms for ${requestTarget(request)} at viewport ${request.viewport.name}.`,
+      : `Sandbox mount did not resolve and call ready() within ${request.timeoutMs} ms for ${requestTarget({ source: request.source, variant })} at viewport ${request.viewport.name}.`,
     cause,
-    request.variant,
+    variant,
     request.viewport.name,
   );
+};
 
 const captureFailure = (
   request: CaptureRequest,
@@ -144,7 +175,7 @@ const applicationFailure = (
       request.target.type === "application"
         ? request.target.location
         : "unknown",
-    )} for ${requestTarget({ ...request, action: "render" })} at viewport ${
+    )} for ${requestTarget(request)} at viewport ${
       request.viewport.name
     }: ${formatUnknownError(cause)}`,
     cause,
@@ -159,60 +190,93 @@ const applicationCompletionFailure = (
   browserFailure(
     request.source,
     `Application did not call ready() within ${request.timeoutMs} ms for ${requestTarget(
-      { ...request, action: "render" },
+      request,
     )} at viewport ${request.viewport.name}.`,
     cause,
     request.variant,
     request.viewport.name,
   );
 
-const previewUrl = (request: PageRequest): string => {
-  const url = new URL(Protocol.PreviewRoute, request.baseUrl);
-  url.searchParams.set(
-    Protocol.PreviewModuleParameter,
-    `/@fs/${request.source.replaceAll("\\", "/")}`,
-  );
-  url.searchParams.set(Protocol.PreviewActionParameter, request.action);
-  if (request.variant !== undefined) {
-    url.searchParams.set(Protocol.PreviewVariantParameter, request.variant);
-  }
-  return url.href;
-};
-
-const closeBrowser = (browser: PlaywrightBrowser): Effect.Effect<void> =>
+const closeBrowser = (browser: BrowserHandle): Effect.Effect<void> =>
   Effect.promise(() => browser.close());
 
 const closeContext = (context: BrowserContext): Effect.Effect<void> =>
   Effect.promise(() => context.close());
 
-const closeSandboxContext = (
-  context: BrowserContext,
-  request: PageRequest,
-): Effect.Effect<void> =>
-  Effect.suspend(() =>
-    Effect.forEach(
-      context.pages(),
-      (page) =>
-        Effect.tryPromise({
-          try: () =>
-            page.evaluate(async (key: string) => {
-              const dispose = Reflect.get(globalThis, key);
-              if (typeof dispose === "function") await dispose();
-            }, Protocol.PreviewDisposeKey),
-          catch: (cause) => renderFailure(request, cause),
-        }).pipe(
-          Effect.timeout(request.timeoutMs),
-          Effect.result,
-          Effect.asVoid,
-        ),
-      { concurrency: 1, discard: true },
-    ),
-  ).pipe(Effect.ensuring(closeContext(context)));
+interface RunnerDocument {
+  readonly html: string;
+  readonly url: string;
+}
+
+const baseDirectoryUrl = (baseUrl: string): URL => {
+  const url = new URL(baseUrl);
+  if (!url.pathname.endsWith("/")) url.pathname += "/";
+  url.search = "";
+  url.hash = "";
+  return url;
+};
+
+const appendPath = (baseUrl: string, path: string): string => {
+  const url = baseDirectoryUrl(baseUrl);
+  url.pathname += path;
+  return url.href;
+};
+
+const previewModuleUrl = (request: Request): string =>
+  appendPath(request.baseUrl, `@fs/${request.source.replaceAll("\\", "/")}`);
+
+const runnerDocument = (baseUrl: string): RunnerDocument => {
+  const runnerModuleUrl = appendPath(
+    baseUrl,
+    `@id/${RunnerEntry.RunnerModuleId}`,
+  );
+  const url = appendPath(
+    baseUrl,
+    `.nmnmcc-preview/${globalThis.crypto.randomUUID()}`,
+  );
+  return {
+    url,
+    html: `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview</title>
+  </head>
+  <body>
+    <div id="preview-root"></div>
+    <script>
+      // React framework plugins can add Fast Refresh code to Sandbox modules.
+      window.$RefreshReg$ ??= () => {}
+      window.$RefreshSig$ ??= () => (type) => type
+      window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="${runnerModuleUrl}"></script>
+  </body>
+</html>`,
+  };
+};
 
 const handleRoute =
-  (externalRequests: Set<string>, baseOrigin: string) =>
+  (
+    externalRequests: Set<string>,
+    baseOrigin: string,
+    runner?: RunnerDocument,
+  ) =>
   (route: Route): Promise<void> => {
-    const requestUrl = route.request().url();
+    const request = route.request();
+    const requestUrl = request.url();
+    if (
+      runner !== undefined &&
+      request.isNavigationRequest() &&
+      requestUrl === runner.url
+    ) {
+      return route.fulfill({
+        body: runner.html,
+        contentType: "text/html; charset=utf-8",
+        status: 200,
+      });
+    }
     const parsed = new URL(requestUrl);
     if (
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
@@ -224,9 +288,52 @@ const handleRoute =
     return route.continue();
   };
 
+export const makeSandboxRpcSession = Effect.fnUntraced(function* (
+  request: Rpcs.SandboxPreviewRequest,
+) {
+  const completion = yield* Deferred.make<Rpcs.SandboxPreviewExit>();
+  const disposeRequested = yield* Deferred.make<void>();
+  const disposed = yield* Deferred.make<void>();
+  const started = yield* Ref.make(false);
+  const handlers = Rpcs.SandboxRpcs.toLayer({
+    SandboxRequest: () => Ref.set(started, true).pipe(Effect.as(request)),
+    SandboxComplete: ({ exit }) =>
+      Deferred.succeed(completion, exit).pipe(Effect.asVoid),
+    SandboxAwaitDispose: () => Deferred.await(disposeRequested),
+    SandboxDisposed: () =>
+      Deferred.succeed(disposed, undefined).pipe(Effect.asVoid),
+  });
+  const dispose = Ref.get(started).pipe(
+    Effect.flatMap((hasStarted) =>
+      hasStarted
+        ? Deferred.succeed(disposeRequested, undefined).pipe(
+            Effect.andThen(Deferred.await(disposed)),
+          )
+        : Effect.void,
+    ),
+  );
+  return {
+    awaitCompletion: Deferred.await(completion),
+    dispose,
+    handlers,
+  };
+});
+
+const makeApplicationRpcSession = Effect.fnUntraced(function* () {
+  const ready = yield* Deferred.make<void>();
+  const handlers = Rpcs.ApplicationRpcs.toLayer({
+    ApplicationReady: () =>
+      Deferred.succeed(ready, undefined).pipe(Effect.asVoid),
+  });
+  return {
+    awaitReady: Deferred.await(ready),
+    handlers,
+  };
+});
+
 interface OpenPageResult {
   readonly page: Page;
-  readonly state: Protocol.BrowserPreviewReady;
+  readonly result: Protocol.BrowserPreviewResult;
 }
 
 const browserViewport = (
@@ -267,7 +374,7 @@ const browserScreenshotOptions = (
 });
 
 const openPage = Effect.fnUntraced(function* (
-  browser: PlaywrightBrowser,
+  browser: BrowserHandle,
   request: PageRequest,
   contextOptions: PreviewPlaywrightOptions["context"],
 ): Effect.fn.Return<OpenPageResult, PreviewBrowserError, Scope.Scope> {
@@ -279,63 +386,61 @@ const openPage = Effect.fnUntraced(function* (
         ),
       catch: (cause) => renderFailure(request, cause),
     }),
-    (context) => closeSandboxContext(context, request),
+    closeContext,
   );
-
   const page = yield* Effect.tryPromise({
     try: () => context.newPage(),
     catch: (cause) => renderFailure(request, cause),
   });
-  const baseOrigin = yield* Effect.try({
-    try: () => new URL(request.baseUrl).origin,
+  const runner = yield* Effect.try({
+    try: () => runnerDocument(request.baseUrl),
     catch: (cause) => renderFailure(request, cause),
   });
+  const baseOrigin = new URL(runner.url).origin;
   const externalRequests = new Set<string>();
+  const session = yield* makeSandboxRpcSession(request.rpcRequest);
+  yield* Layer.build(
+    PreviewRpcServer.serveLayer(page, Rpcs.SandboxRpcs).pipe(
+      Layer.provide(session.handlers),
+    ),
+  ).pipe(
+    Effect.mapError((cause) => renderFailure(request, cause)),
+    Effect.asVoid,
+  );
+  yield* Effect.addFinalizer(() =>
+    session.dispose.pipe(
+      Effect.interruptible,
+      Effect.timeout(request.timeoutMs),
+      Effect.result,
+      Effect.asVoid,
+    ),
+  );
 
   yield* Effect.tryPromise({
-    try: () => context.route("**/*", handleRoute(externalRequests, baseOrigin)),
+    try: () =>
+      context.route("**/*", handleRoute(externalRequests, baseOrigin, runner)),
     catch: (cause) => renderFailure(request, cause),
   });
   yield* Effect.tryPromise({
     try: () =>
-      page.goto(previewUrl(request), {
+      page.goto(runner.url, {
         waitUntil: "commit",
         timeout: request.timeoutMs,
       }),
     catch: (cause) => renderFailure(request, cause),
   });
-  yield* Effect.tryPromise({
-    try: () =>
-      page.waitForFunction(
-        (key: string) => {
-          const state = Reflect.get(globalThis, key);
-          return state?.status === "ready" || state?.status === "error";
-        },
-        Protocol.PreviewStateKey,
-        { timeout: request.timeoutMs },
-      ),
-    catch: (cause) =>
-      cause instanceof errors.TimeoutError
-        ? renderCompletionFailure(request, cause)
-        : renderFailure(request, cause),
-  });
 
-  const encodedState = yield* Effect.tryPromise({
-    try: () =>
-      page.evaluate(
-        (key: string): unknown => Reflect.get(globalThis, key),
-        Protocol.PreviewStateKey,
-      ),
-    catch: (cause) => renderFailure(request, cause),
-  });
-  const state = yield* Schema.decodeUnknownEffect(
-    Protocol.BrowserPreviewTerminalState,
-  )(encodedState).pipe(
-    Effect.mapError((cause) => renderFailure(request, cause)),
+  const completion = yield* session.awaitCompletion.pipe(
+    Effect.timeout(request.timeoutMs),
+    Effect.catchTag("TimeoutError", (cause) =>
+      renderCompletionFailure(request, cause),
+    ),
   );
-  if (state.status === "error") {
-    return yield* renderFailure(request, new Error(state.error));
-  }
+  const result = yield* completion.pipe(
+    Effect.catchCause((cause) =>
+      renderFailure(request, new Error(Cause.pretty(cause))),
+    ),
+  );
 
   if (externalRequests.size > 0) {
     return yield* renderFailure(
@@ -346,7 +451,7 @@ const openPage = Effect.fnUntraced(function* (
     );
   }
 
-  return { page, state };
+  return { page, result };
 });
 
 const captureScreenshot = Effect.fnUntraced(function* (
@@ -362,30 +467,42 @@ const captureScreenshot = Effect.fnUntraced(function* (
 });
 
 const capturePage = Effect.fnUntraced(function* (
-  browser: PlaywrightBrowser,
+  browser: BrowserHandle,
   request: CaptureRequest,
   options: PreviewPlaywrightOptions,
 ): Effect.fn.Return<Uint8Array, PreviewBrowserError, Scope.Scope> {
-  const opened = yield* openPage(
-    browser,
-    {
-      ...request,
-      action: "render",
-    },
-    options.context,
-  );
-  if (opened.state.result.type !== "render") {
+  const moduleUrl = yield* Effect.try({
+    try: () => previewModuleUrl(request),
+    catch: (cause) =>
+      renderFailure(
+        {
+          ...request,
+          rpcRequest: Rpcs.SandboxPreviewRequest.cases.Render.make({
+            moduleUrl: request.source,
+            ...(request.variant === undefined
+              ? {}
+              : { variant: request.variant }),
+          }),
+        },
+        cause,
+      ),
+  });
+  const rpcRequest = Rpcs.SandboxPreviewRequest.cases.Render.make({
+    moduleUrl,
+    ...(request.variant === undefined ? {} : { variant: request.variant }),
+  });
+  const pageRequest: PageRequest = { ...request, rpcRequest };
+  const opened = yield* openPage(browser, pageRequest, options.context);
+  if (opened.result.type !== "render") {
     return yield* renderFailure(
-      { ...request, action: "render" },
+      pageRequest,
       new Error("The preview runner returned the wrong result."),
     );
   }
   return yield* captureScreenshot(opened.page, request, options.screenshot);
 });
 
-const applicationUrl = Effect.fnUntraced(function* (
-  request: CaptureRequest,
-) {
+const applicationUrl = Effect.fnUntraced(function* (request: CaptureRequest) {
   if (request.target.type !== "application") {
     return yield* applicationFailure(
       request,
@@ -401,7 +518,9 @@ const applicationUrl = Effect.fnUntraced(function* (
         (url.protocol !== "http:" && url.protocol !== "https:") ||
         url.origin !== base.origin
       ) {
-        throw new Error("Application locations must use the Vite server origin.");
+        throw new Error(
+          "Application locations must use the Vite server origin.",
+        );
       }
       return url;
     },
@@ -410,7 +529,7 @@ const applicationUrl = Effect.fnUntraced(function* (
 });
 
 const captureApplicationPage = Effect.fnUntraced(function* (
-  browser: PlaywrightBrowser,
+  browser: BrowserHandle,
   request: CaptureRequest,
   options: PreviewPlaywrightOptions,
 ): Effect.fn.Return<Uint8Array, PreviewBrowserError, Scope.Scope> {
@@ -425,33 +544,22 @@ const captureApplicationPage = Effect.fnUntraced(function* (
     }),
     closeContext,
   );
-
-  yield* Effect.tryPromise({
-    try: () =>
-      context.addInitScript(
-        ({ key, version }) => {
-          Reflect.set(globalThis, Symbol.for(key), {
-            version,
-            status: "loading",
-          });
-        },
-        {
-          key: Protocol.ApplicationReadyStateKey,
-          version: Protocol.ApplicationReadyStateVersion,
-        },
-      ),
-    catch: (cause) => applicationFailure(request, cause),
-  });
-
   const page = yield* Effect.tryPromise({
     try: () => context.newPage(),
     catch: (cause) => applicationFailure(request, cause),
   });
   const externalRequests = new Set<string>();
-
+  const session = yield* makeApplicationRpcSession();
+  yield* Layer.build(
+    PreviewRpcServer.serveLayer(page, Rpcs.ApplicationRpcs).pipe(
+      Layer.provide(session.handlers),
+    ),
+  ).pipe(
+    Effect.mapError((cause) => applicationFailure(request, cause)),
+    Effect.asVoid,
+  );
   yield* Effect.tryPromise({
-    try: () =>
-      context.route("**/*", handleRoute(externalRequests, url.origin)),
+    try: () => context.route("**/*", handleRoute(externalRequests, url.origin)),
     catch: (cause) => applicationFailure(request, cause),
   });
   const response = yield* Effect.tryPromise({
@@ -484,35 +592,11 @@ const captureApplicationPage = Effect.fnUntraced(function* (
     );
   }
 
-  yield* Effect.tryPromise({
-    try: () =>
-      page.waitForFunction(
-        (key: string) => {
-          const state = Reflect.get(globalThis, Symbol.for(key));
-          return state?.status === "ready";
-        },
-        Protocol.ApplicationReadyStateKey,
-        { timeout: request.timeoutMs },
-      ),
-    catch: (cause) =>
-      cause instanceof errors.TimeoutError
-        ? applicationCompletionFailure(request, cause)
-        : applicationFailure(request, cause),
-  });
-
-  const encodedState = yield* Effect.tryPromise({
-    try: () =>
-      page.evaluate(
-        (key: string): unknown =>
-          Reflect.get(globalThis, Symbol.for(key)),
-        Protocol.ApplicationReadyStateKey,
-      ),
-    catch: (cause) => applicationFailure(request, cause),
-  });
-  yield* Schema.decodeUnknownEffect(
-    Protocol.BrowserApplicationReady,
-  )(encodedState).pipe(
-    Effect.mapError((cause) => applicationFailure(request, cause)),
+  yield* session.awaitReady.pipe(
+    Effect.timeout(request.timeoutMs),
+    Effect.catchTag("TimeoutError", (cause) =>
+      applicationCompletionFailure(request, cause),
+    ),
   );
 
   if (externalRequests.size > 0) {
@@ -527,35 +611,63 @@ const captureApplicationPage = Effect.fnUntraced(function* (
   return yield* captureScreenshot(page, request, options.screenshot);
 });
 
-const makeLaunch = (options: PreviewPlaywrightOptions) =>
-  Effect.fn("PreviewBrowser.launch")(function* (source: string) {
-    const browser = yield* Effect.acquireRelease(
-      Effect.tryPromise({
-        try: () => chromium.launch({ headless: true, ...options.launch }),
-        catch: (cause) =>
-          browserFailure(
-            source,
-            "Could not launch Playwright Chromium. Install it with `yarn playwright install chromium`.",
-            cause,
-          ),
-      }),
-      closeBrowser,
-    );
+const getBrowser = (
+  browserRef: RcRef.RcRef<BrowserHandle, PreviewBrowserLaunchError>,
+  source: string,
+): Effect.Effect<BrowserHandle, PreviewBrowserError, Scope.Scope> =>
+  RcRef.get(browserRef).pipe(
+    Effect.mapError((error) =>
+      browserFailure(
+        source,
+        "Could not launch Playwright Chromium. Install it with `yarn playwright install chromium`.",
+        error.cause,
+      ),
+    ),
+  );
+
+const makeSession = (
+  options: PreviewPlaywrightOptions,
+  browserRef: RcRef.RcRef<BrowserHandle, PreviewBrowserLaunchError>,
+) =>
+  Effect.fn("PreviewBrowser.session")(function* (source: string) {
+    let browser = yield* getBrowser(browserRef, source);
+    if (!browser.isConnected()) {
+      yield* RcRef.invalidate(browserRef);
+      browser = yield* getBrowser(browserRef, source);
+    }
 
     const probe = Effect.fn("PreviewBrowser.probe")(function* (
       request: Request,
     ) {
-      const pageRequest = { ...request, action: "probe" } as const;
+      const moduleUrl = yield* Effect.try({
+        try: () => previewModuleUrl(request),
+        catch: (cause) =>
+          renderFailure(
+            {
+              ...request,
+              rpcRequest: Rpcs.SandboxPreviewRequest.cases.Probe.make({
+                moduleUrl: request.source,
+              }),
+            },
+            cause,
+          ),
+      });
+      const pageRequest: PageRequest = {
+        ...request,
+        rpcRequest: Rpcs.SandboxPreviewRequest.cases.Probe.make({
+          moduleUrl,
+        }),
+      };
       const opened = yield* Effect.scoped(
         openPage(browser, pageRequest, options.context),
       );
-      if (opened.state.result.type !== "probe") {
+      if (opened.result.type !== "probe") {
         return yield* renderFailure(
           pageRequest,
           new Error("The preview runner returned the wrong result."),
         );
       }
-      return opened.state.result.targets;
+      return opened.result.targets;
     });
 
     const capture = Effect.fn("PreviewBrowser.capture")(function* (
@@ -575,5 +687,27 @@ export class Browser extends Context.Service<Browser, Interface>()(
   "@nmnmcc/preview/PreviewBrowser",
 ) {}
 
+export const layerWithLauncher = (
+  launcher: BrowserLauncher,
+  options: PreviewPlaywrightOptions = {},
+) =>
+  Layer.effect(
+    Browser,
+    Effect.gen(function* () {
+      const browserRef = yield* RcRef.make({
+        acquire: Effect.acquireRelease(
+          Effect.tryPromise({
+            try: () => launcher({ headless: true, ...options.launch }),
+            catch: (cause) => new PreviewBrowserLaunchError({ cause }),
+          }),
+          closeBrowser,
+        ),
+        idleTimeToLive: Duration.infinity,
+      });
+
+      return Browser.of({ session: makeSession(options, browserRef) });
+    }),
+  );
+
 export const layer = (options: PreviewPlaywrightOptions = {}) =>
-  Layer.succeed(Browser, Browser.of({ launch: makeLaunch(options) }));
+  layerWithLauncher((launchOptions) => chromium.launch(launchOptions), options);

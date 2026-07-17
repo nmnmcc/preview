@@ -1,8 +1,5 @@
 import { ready } from "@nmnmcc/preview/application";
-import type {
-  GetServerSideProps,
-  InferGetServerSidePropsType,
-} from "next";
+import type { GetServerSideProps, InferGetServerSidePropsType } from "next";
 import { useEffect } from "react";
 
 interface ProjectViewModel {

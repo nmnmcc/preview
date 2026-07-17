@@ -16,16 +16,13 @@ export interface ReactPreviewOptions extends Preview.PreviewMetadata {
 export const preview: Preview.PreviewTemplate<
   ReactPreviewOptions,
   ComponentPreviewDefinition
-> = template(
-  ({ render, ...metadata }: ReactPreviewOptions): PreviewOptions => {
-    return {
-      ...metadata,
-      mount: ({ root, ready }) => {
-        const reactRoot = createRoot(root);
-        reactRoot.render(render({ ready }));
-        return () => reactRoot.unmount();
-      },
-    };
-  },
-  corePreview,
-);
+> = template(({ render, ...metadata }: ReactPreviewOptions): PreviewOptions => {
+  return {
+    ...metadata,
+    mount: ({ root, ready }) => {
+      const reactRoot = createRoot(root);
+      reactRoot.render(render({ ready }));
+      return () => reactRoot.unmount();
+    },
+  };
+}, corePreview);

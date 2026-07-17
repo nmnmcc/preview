@@ -1,0 +1,4 @@
+interface:
+  display_name: "Preview"
+  short_description: "Define and inspect repeatable UI previews."
+  default_prompt: "Use $preview to define and inspect this UI state with its real Vite application setup."

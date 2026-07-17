@@ -6,10 +6,7 @@
     "declarationMap": false,
     "jsx": "react-jsx",
     "noEmit": true,
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "types": ["node", "vite/client"]
   },
   "include": [
     ".next/types",

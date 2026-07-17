@@ -23,12 +23,7 @@ export interface PreviewPlaywrightOptions {
   readonly screenshot?: Readonly<
     Pick<
       PageScreenshotOptions,
-      | "animations"
-      | "caret"
-      | "omitBackground"
-      | "scale"
-      | "style"
-      | "timeout"
+      "animations" | "caret" | "omitBackground" | "scale" | "style" | "timeout"
     >
   >;
 }
@@ -43,6 +38,12 @@ export interface PreviewPluginOptions {
   };
   readonly capture: {
     readonly viewports: Readonly<Record<string, PreviewViewport>>;
+    /**
+     * The maximum number of Playwright page tasks that may run at once.
+     *
+     * @default node:os.availableParallelism()
+     */
+    readonly concurrency?: number;
     readonly timeoutMs?: number;
     readonly playwright?: PreviewPlaywrightOptions;
   };
@@ -58,7 +59,7 @@ export interface PreviewPluginOptions {
   };
   readonly build?: {
     /**
-     * Checks final build chunks for Application Preview code.
+     * Checks final build chunks for Preview code.
      *
      * @default true
      */

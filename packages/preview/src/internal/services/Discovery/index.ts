@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as Artifacts from "../Artifacts";
 import * as Config from "../Config";
@@ -19,6 +20,9 @@ export class PreviewDiscoveryError extends Schema.TaggedErrorClass<PreviewDiscov
 }
 
 const hasGlobMagic = (value: string): boolean => /[*?{}[\]]/.test(value);
+
+const isNotFound = (error: PlatformError.PlatformError): boolean =>
+  error.reason._tag === "NotFound";
 
 export interface Interface {
   readonly discover: (
@@ -44,8 +48,8 @@ export const layer = Layer.effect(
       config: Config.ResolvedGenerationOptions,
       filters: ReadonlyArray<string> = [],
     ) {
-      const ownedDirectories = yield* artifacts
-        .ownedDirectories(root, config.cleanOutputs)
+      const outputDirectories = yield* artifacts
+        .outputDirectories(root, config.cleanOutputs)
         .pipe(
           Effect.mapError(
             (cause) =>
@@ -55,7 +59,7 @@ export const layer = Layer.effect(
               }),
           ),
         );
-      const files = yield* Effect.forEach(
+      const candidates = yield* Effect.forEach(
         config.include,
         (pattern) =>
           fs.glob(pattern, {
@@ -66,12 +70,10 @@ export const layer = Layer.effect(
       ).pipe(
         Effect.map((groups) =>
           [
-            ...new Set(
-              groups.flat().map((file) => path.resolve(root, file)),
-            ),
+            ...new Set(groups.flat().map((file) => path.resolve(root, file))),
           ].filter(
             (file) =>
-              ![...ownedDirectories].some((directory) =>
+              ![...outputDirectories].some((directory) =>
                 artifacts.isPathInDirectory(file, directory),
               ),
           ),
@@ -80,6 +82,25 @@ export const layer = Layer.effect(
           (cause) =>
             new PreviewDiscoveryError({
               detail: `Could not discover preview files below ${root}.`,
+              cause,
+            }),
+        ),
+      );
+      const files = yield* Effect.filter(
+        candidates,
+        (file) =>
+          fs.stat(file).pipe(
+            Effect.map((info) => info.type === "File"),
+            Effect.catch((cause) =>
+              isNotFound(cause) ? Effect.succeed(false) : Effect.fail(cause),
+            ),
+          ),
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new PreviewDiscoveryError({
+              detail: `Could not inspect discovered preview files below ${root}.`,
               cause,
             }),
         ),

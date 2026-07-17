@@ -30,12 +30,9 @@ const ControlledPlugin = Schema.Struct({
 });
 
 export type DecodedPluginControl =
-  typeof ControlledPlugin.Type[typeof PluginControlKey];
+  (typeof ControlledPlugin.Type)[typeof PluginControlKey];
 
-export const attach = (
-  plugin: Plugin,
-  control: PluginControl,
-): Plugin => {
+export const attach = (plugin: Plugin, control: PluginControl): Plugin => {
   Reflect.set(plugin, PluginControlKey, control);
   return plugin;
 };

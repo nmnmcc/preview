@@ -25,9 +25,11 @@ export const Card = ({
 }: CardProps) => {
   const [confirmed, setConfirmed] = useState(false);
 
-  useEffect(() => {
-    ready?.();
-  }, [ready]);
+  preview: {
+    useEffect(() => {
+      ready?.();
+    }, [ready]);
+  }
 
   return (
     <main className="stage" data-theme={theme}>

@@ -4,8 +4,8 @@ import {
   type VuePreviewOptions,
 } from "@nmnmcc/preview-vue";
 import { h } from "vue";
-import ThemeProvider from "./ThemeProvider.vue";
 import type { CardTheme } from "./theme";
+import ThemeProvider from "./ThemeProvider.vue";
 
 interface AppPreviewOptions extends VuePreviewOptions {
   readonly theme?: CardTheme;

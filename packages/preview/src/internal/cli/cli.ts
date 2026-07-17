@@ -1,7 +1,9 @@
+import * as Clock from "effect/Clock";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Logging from "../logging";
 import * as ProjectRunner from "./services/ProjectRunner";
 
 export class PreviewCliError extends Schema.TaggedErrorClass<PreviewCliError>(
@@ -26,10 +28,16 @@ export const generate = Effect.fn("PreviewCli.generate")(function* ({
   });
 
   for (const artifact of summary.artifacts) {
-    yield* Console.log(`generated ${path.relative(root, artifact.pngPath)}`);
+    const timestampMillis = yield* Clock.currentTimeMillis;
+    yield* Console.log(
+      Logging.formatGeneratedArtifact(path, artifact, timestampMillis),
+    );
   }
   for (const failure of summary.failures) {
-    yield* Console.error(failure.message);
+    const timestampMillis = yield* Clock.currentTimeMillis;
+    yield* Console.error(
+      Logging.formatGenerationFailure(path, failure, timestampMillis),
+    );
   }
   if (summary.failures.length > 0) {
     return yield* new PreviewCliError({
@@ -37,6 +45,13 @@ export const generate = Effect.fn("PreviewCli.generate")(function* ({
     });
   }
   if (summary.artifacts.length === 0) {
-    yield* Console.warn("No matching preview files were found.");
+    const timestampMillis = yield* Clock.currentTimeMillis;
+    yield* Console.warn(
+      Logging.formatMessage(
+        "warn",
+        "No matching preview files were found.",
+        timestampMillis,
+      ),
+    );
   }
 });

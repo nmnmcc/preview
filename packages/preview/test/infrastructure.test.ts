@@ -1,10 +1,7 @@
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";
 import { describe, it } from "@effect/vitest";
-import {
-  deepStrictEqual,
-  strictEqual,
-} from "@effect/vitest/utils";
+import { deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -12,8 +9,8 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
 import * as TestClock from "effect/testing/TestClock";
-import type * as Config from "../src/internal/services/Config";
 import * as Artifacts from "../src/internal/services/Artifacts";
+import type * as Config from "../src/internal/services/Config";
 import * as Discovery from "../src/internal/services/Discovery";
 
 const platformLayer = Layer.merge(NodeFileSystem.layer, NodePath.layer);
@@ -91,6 +88,7 @@ const generationConfig: Config.ResolvedGenerationOptions = {
   exclude: ["**/ignored.preview.tsx"],
   output: ".preview",
   cleanOutputs: [".preview"],
+  concurrency: 1,
   timeoutMs: 30_000,
 };
 
@@ -130,7 +128,10 @@ describe("preview infrastructure", () => {
           Array.from(yield* fs.readFile(pngPath)),
           Array.from(png(1)),
         );
-        strictEqual(Result.isFailure(yield* Effect.result(fs.readLink(pngPath))), true);
+        strictEqual(
+          Result.isFailure(yield* Effect.result(fs.readLink(pngPath))),
+          true,
+        );
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
   );
@@ -251,7 +252,6 @@ describe("preview infrastructure", () => {
         const directory = artifacts.sourceDirectory(source, ".preview");
         const names = (yield* fs.readDirectory(directory)).toSorted();
         deepStrictEqual(names, [
-          Artifacts.OwnershipMarkerName,
           "mobile.png",
           "mobile@20260717T000000001Z.png",
           "mobile@20260717T000000002Z.png",
@@ -305,7 +305,6 @@ describe("preview infrastructure", () => {
         deepStrictEqual(
           (yield* fs.readDirectory(path.dirname(current))).toSorted(),
           [
-            Artifacts.OwnershipMarkerName,
             "mobile.png",
             path.basename(current),
             "mobile@20260717T000000001Z.png",
@@ -320,11 +319,7 @@ describe("preview infrastructure", () => {
         });
         deepStrictEqual(
           (yield* fs.readDirectory(path.dirname(current))).toSorted(),
-          [
-            Artifacts.OwnershipMarkerName,
-            "mobile.png",
-            path.basename(current),
-          ].toSorted(),
+          ["mobile.png", path.basename(current)].toSorted(),
         );
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
@@ -370,7 +365,6 @@ describe("preview infrastructure", () => {
         deepStrictEqual(
           (yield* fs.readDirectory(path.dirname(first))).toSorted(),
           [
-            Artifacts.OwnershipMarkerName,
             "mobile.png",
             "mobile@20260717T000000000Z.png",
             "mobile@20260717T000000001Z.png",
@@ -412,7 +406,10 @@ describe("preview infrastructure", () => {
           png: png(2),
         });
         strictEqual(disabled, regular);
-        strictEqual(Result.isFailure(yield* Effect.result(fs.readLink(disabled))), true);
+        strictEqual(
+          Result.isFailure(yield* Effect.result(fs.readLink(disabled))),
+          true,
+        );
 
         yield* artifacts.cleanSource({
           source,
@@ -421,7 +418,7 @@ describe("preview infrastructure", () => {
         });
         deepStrictEqual(
           (yield* fs.readDirectory(path.dirname(disabled))).toSorted(),
-          [Artifacts.OwnershipMarkerName, "mobile.png"].toSorted(),
+          ["mobile.png"],
         );
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
@@ -475,7 +472,7 @@ describe("preview infrastructure", () => {
     ).pipe(Effect.provide(infrastructureLayer)),
   );
 
-  it.effect("does not clean an unowned source output directory", () =>
+  it.effect("cleans stale PNGs from an existing source output directory", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -494,12 +491,12 @@ describe("preview infrastructure", () => {
           targets: [{ viewport: "mobile" }],
         });
 
-        strictEqual(yield* fs.exists(ordinaryPng), true);
+        strictEqual(yield* fs.exists(ordinaryPng), false);
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
   );
 
-  it.effect("refuses to claim a non-empty unowned output directory", () =>
+  it.effect("writes into a non-empty output directory without metadata", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -512,29 +509,24 @@ describe("preview infrastructure", () => {
         yield* fs.makeDirectory(directory, { recursive: true });
         yield* fs.writeFile(ordinaryPng, png(1));
 
-        const error = yield* Effect.flip(
-          artifacts.write({
-            source,
-            output: "src",
-            viewport: "mobile",
-            png: png(2),
-          }),
-        );
+        const generated = yield* artifacts.write({
+          source,
+          output: "src",
+          viewport: "mobile",
+          png: png(2),
+        });
 
-        strictEqual(error._tag, "PreviewWriteError");
-        strictEqual(error.operation, "write");
+        strictEqual(yield* fs.exists(generated), true);
         strictEqual(yield* fs.exists(ordinaryPng), true);
-        strictEqual(
-          yield* fs.exists(
-            path.join(directory, Artifacts.OwnershipMarkerName),
-          ),
-          false,
-        );
+        deepStrictEqual((yield* fs.readDirectory(directory)).toSorted(), [
+          "mobile.png",
+          "photo.png",
+        ]);
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
   );
 
-  it.effect("full clean removes owned stale output and keeps unowned files", () =>
+  it.effect("full clean removes stale output PNG files", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -579,13 +571,13 @@ describe("preview infrastructure", () => {
         strictEqual(yield* fs.exists(active), true);
         strictEqual(yield* fs.exists(deleted), false);
         strictEqual(yield* fs.exists(oldOutput), false);
-        strictEqual(yield* fs.exists(flat), true);
+        strictEqual(yield* fs.exists(flat), false);
         strictEqual(yield* fs.exists(note), true);
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
   );
 
-  it.effect("keeps ordinary source and PNG files when output is src", () =>
+  it.effect("cleans PNG files throughout the output directory", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -615,7 +607,7 @@ describe("preview infrastructure", () => {
 
         strictEqual(yield* fs.exists(generated), false);
         strictEqual(yield* fs.exists(ordinarySource), true);
-        strictEqual(yield* fs.exists(ordinaryPng), true);
+        strictEqual(yield* fs.exists(ordinaryPng), false);
       }),
     ).pipe(Effect.provide(infrastructureLayer)),
   );
@@ -655,15 +647,12 @@ describe("preview infrastructure", () => {
         const sourceC = path.join(otherDirectory, "c.preview.ts");
         const sourceJavaScript = path.join(sourceDirectory, "c.preview.js");
         const sourceJsx = path.join(sourceDirectory, "d.preview.jsx");
-        const ignoredSource = path.join(
-          sourceDirectory,
-          "ignored.preview.tsx",
-        );
-        const unownedDefaultOutputSource = path.join(
+        const ignoredSource = path.join(sourceDirectory, "ignored.preview.tsx");
+        const defaultOutputSource = path.join(
           outputDirectory,
           "real.preview.tsx",
         );
-        const unownedCustomOutputSource = path.join(
+        const customOutputSource = path.join(
           customOutputDirectory,
           "real.preview.tsx",
         );
@@ -695,8 +684,8 @@ describe("preview infrastructure", () => {
             sourceJavaScript,
             sourceJsx,
             ignoredSource,
-            unownedDefaultOutputSource,
-            unownedCustomOutputSource,
+            defaultOutputSource,
+            customOutputSource,
             path.join(generatedDefaultDirectory, "generated.preview.tsx"),
             path.join(generatedCustomDirectory, "generated.preview.tsx"),
             path.join(dependencyDirectory, "dependency.preview.tsx"),
@@ -716,23 +705,19 @@ describe("preview infrastructure", () => {
           customConfig,
           ["src"],
         );
-        const filteredByGlob = yield* discovery.discover(
-          root,
-          customConfig,
-          ["other/*.preview.ts"],
-        );
+        const filteredByGlob = yield* discovery.discover(root, customConfig, [
+          "other/*.preview.ts",
+        ]);
 
         deepStrictEqual(discovered, [
           sourceC,
           sourceA,
-          unownedCustomOutputSource,
           sourceB,
           sourceJavaScript,
           sourceJsx,
         ]);
         deepStrictEqual(filteredByDirectory, [
           sourceA,
-          unownedCustomOutputSource,
           sourceB,
           sourceJavaScript,
           sourceJsx,

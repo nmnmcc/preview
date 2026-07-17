@@ -2,17 +2,14 @@ import { strictEqual } from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import * as Schema from "effect/Schema";
 import preview from "@nmnmcc/preview";
 import vue from "@vitejs/plugin-vue";
+import * as Schema from "effect/Schema";
 import { build } from "vite";
 import { describe, it } from "vitest";
 
 const workspaceRoot = resolve(
   fileURLToPath(new URL("../../../", import.meta.url)),
-);
-const applicationEntry = fileURLToPath(
-  new URL("../../preview/src/Application.ts", import.meta.url),
 );
 
 const BuildOutput = Schema.Struct({
@@ -43,22 +40,32 @@ describe("Vue production builds", () => {
         "package.json": JSON.stringify({ private: true, type: "module" }),
         "src/main.ts": `import App from "./App.vue"; console.log(App);`,
         "src/App.vue": `<script lang="ts">
-import { ready } from "@nmnmcc/preview/application";
+import type { PreviewReady } from "@nmnmcc/preview";
 import { defineComponent, onMounted } from "vue";
 export default defineComponent({
   setup() {
+    const ready: PreviewReady | undefined = undefined;
     preview: {
-      onMounted(ready);
+      onMounted(() => {
+        console.log("vue-normal-preview-only");
+        ready?.();
+      });
     }
     return { normal: "vue-normal-kept" };
   }
 });
 </script>
 <script setup lang="ts">
-import * as Application from "@nmnmcc/preview/application";
+import type { PreviewReady } from "@nmnmcc/preview";
 import { onMounted } from "vue";
+
+const { ready } = defineProps<{ readonly ready?: PreviewReady }>();
+
 preview: {
-  onMounted(() => Application.ready());
+  onMounted(() => {
+    console.log("vue-setup-preview-only");
+    ready?.();
+  });
 }
 const setup = "vue-setup-kept";
 </script>
@@ -92,20 +99,13 @@ const setup = "vue-setup-kept";
               },
             }),
           ],
-          resolve: {
-            alias: [
-              {
-                find: "@nmnmcc/preview/application",
-                replacement: applicationEntry,
-              },
-            ],
-          },
           root,
         }),
       );
       strictEqual(code.includes("vue-normal-kept"), true);
       strictEqual(code.includes("vue-setup-kept"), true);
-      strictEqual(code.includes("application-ready"), false);
+      strictEqual(code.includes("vue-normal-preview-only"), false);
+      strictEqual(code.includes("vue-setup-preview-only"), false);
       strictEqual(code.includes("preview:"), false);
     } finally {
       await rm(root, { force: true, recursive: true });

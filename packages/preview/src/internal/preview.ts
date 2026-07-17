@@ -1,15 +1,15 @@
 import * as Schema from "effect/Schema";
 import {
   ApplicationDefinitionTypeId,
-  type PreviewDefinition as Definition,
   PreviewDefinitionTypeId,
+  type PreviewDefinition as Definition,
   type PreviewMount as Mount,
 } from "./definition";
 import type {
   PreviewMetadata as PreviewMetadataType,
-  PreviewViewport as PreviewViewportType,
   PreviewViewportHeight as PreviewViewportHeightType,
   PreviewViewportOverride as PreviewViewportOverrideType,
+  PreviewViewport as PreviewViewportType,
 } from "./preview-metadata";
 import * as SchemaRules from "./schema";
 
@@ -46,9 +46,7 @@ export const isFullPageViewportHeight = (
 ): height is Exclude<PreviewViewportHeight, number> =>
   typeof height === "string";
 
-export const viewportLayoutHeight = (
-  height: PreviewViewportHeight,
-): number =>
+export const viewportLayoutHeight = (height: PreviewViewportHeight): number =>
   typeof height === "number"
     ? height
     : height === "full"
@@ -76,10 +74,9 @@ export const PreviewViewportOverride = Schema.toStandardSchemaV1(
 export const PreviewMetadata = Schema.toStandardSchemaV1(
   Schema.Struct({
     viewports: Schema.optionalKey(
-      Schema.Record(
-        SchemaRules.ViewportName,
-        PreviewViewportOverride,
-      ).check(Schema.isMinProperties(1)),
+      Schema.Record(SchemaRules.ViewportName, PreviewViewportOverride).check(
+        Schema.isMinProperties(1),
+      ),
     ),
   }),
 ) satisfies Schema.Codec<PreviewMetadataType>;
@@ -119,27 +116,22 @@ const PreviewDefinitionStruct = Schema.Union([
 const isPreviewDefinition = Schema.is(PreviewDefinitionStruct);
 
 export const PreviewDefinition = Schema.toStandardSchemaV1(
-  Schema.declare<Definition>(
-    (input): input is Definition => isPreviewDefinition(input),
+  Schema.declare<Definition>((input): input is Definition =>
+    isPreviewDefinition(input),
   ),
 );
 
 export const PreviewCollection = Schema.toStandardSchemaV1(
-  Schema.Record(
-    SchemaRules.PreviewVariantName,
-    PreviewDefinition,
-  ).check(Schema.isMinProperties(1)),
+  Schema.Record(SchemaRules.PreviewVariantName, PreviewDefinition).check(
+    Schema.isMinProperties(1),
+  ),
 ) satisfies Schema.Codec<PreviewCollection>;
 
 export const PreviewExport = Schema.toStandardSchemaV1(
   Schema.Union([PreviewDefinition, PreviewCollection]),
 ) satisfies Schema.Codec<PreviewExport>;
 
-export {
-  application,
-  preview,
-  template,
-} from "./definition";
+export { application, preview, template } from "./definition";
 
 export type {
   ApplicationLocation,

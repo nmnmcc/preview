@@ -3,14 +3,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "@effect/vitest";
-import {
-  assertInclude,
-  strictEqual,
-} from "@effect/vitest/utils";
+import { assertInclude, strictEqual } from "@effect/vitest/utils";
 import * as Schema from "effect/Schema";
 import { build, createBuilder, type PluginOption } from "vite";
 import preview from "../src/index";
 import { ApplicationModuleId } from "../src/internal/check";
+import { ApplicationReadyCodeSignature } from "../src/internal/rpcs";
 
 const workspaceRoot = resolve(
   fileURLToPath(new URL("../../../", import.meta.url)),
@@ -115,7 +113,7 @@ console.log("react-kept");
       async (root) => {
         const code = outputCode(await buildProject(root, "src/main.tsx"));
         assertInclude(code, "react-kept");
-        strictEqual(code.includes("application-ready"), false);
+        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -205,14 +203,12 @@ ready();
           },
           configFile: false,
           logLevel: "silent",
-          plugins: [
-            preview({ ...previewOptions, build: { check: false } }),
-          ],
+          plugins: [preview({ ...previewOptions, build: { check: false } })],
           resolve: { alias: [applicationAlias] },
           root,
         });
         const code = outputCode(result);
-        assertInclude(code, "application-ready");
+        assertInclude(code, ApplicationReadyCodeSignature);
         strictEqual(code.includes("queueMicrotask"), false);
       },
     ));
@@ -232,7 +228,7 @@ ready();
               },
             },
           ]),
-          /label preview:/u,
+          /Preview code remains[\s\S]*label preview:/u,
         );
       },
     ));
@@ -292,7 +288,7 @@ export const render = "ssr-kept";
           }),
         );
         assertInclude(code, "ssr-kept");
-        strictEqual(code.includes("application-ready"), false);
+        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -325,10 +321,11 @@ export const boot = "edge-kept";
           root,
         });
         const edge = builder.environments.edge;
-        if (edge === undefined) throw new Error("The edge environment is missing.");
+        if (edge === undefined)
+          throw new Error("The edge environment is missing.");
         const code = outputCode(await builder.build(edge));
         assertInclude(code, "edge-kept");
-        strictEqual(code.includes("application-ready"), false);
+        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -359,7 +356,8 @@ export const boot = ready;
           root,
         });
         const edge = builder.environments.edge;
-        if (edge === undefined) throw new Error("The edge environment is missing.");
+        if (edge === undefined)
+          throw new Error("The edge environment is missing.");
         await rejects(
           builder.build(edge),
           /environment "edge"[\s\S]*external import/u,

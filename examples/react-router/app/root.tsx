@@ -1,11 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-} from "react-router";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import "./card.css";
 
 export const Layout = ({ children }: { readonly children: ReactNode }) => (

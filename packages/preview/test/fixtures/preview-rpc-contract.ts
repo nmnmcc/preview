@@ -2,10 +2,9 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-export const ApplicationRpcTestStateKey =
-  "@nmnmcc/preview/test/application-rpc";
+export const PreviewRpcTestStateKey = "@nmnmcc/preview/test/preview-rpc";
 
-export const ApplicationRpcTestState = Schema.TaggedUnion({
+export const PreviewRpcTestState = Schema.TaggedUnion({
   Success: {
     echo: Schema.String,
     events: Schema.Array(Schema.String),
@@ -14,10 +13,9 @@ export const ApplicationRpcTestState = Schema.TaggedUnion({
   },
   Failure: { cause: Schema.String },
 });
-export type ApplicationRpcTestState =
-  typeof ApplicationRpcTestState.Type;
+export type PreviewRpcTestState = typeof PreviewRpcTestState.Type;
 
-export const ApplicationRpcTestGroup = RpcGroup.make(
+export const PreviewRpcTestGroup = RpcGroup.make(
   Rpc.make("Echo", {
     payload: { value: Schema.String },
     success: Schema.String,

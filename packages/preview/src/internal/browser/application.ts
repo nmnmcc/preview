@@ -1,15 +1,8 @@
-import * as Schema from "effect/Schema";
-import {
-  ApplicationReadyStateKey,
-  ApplicationReadyStateVersion,
-} from "../protocol";
+import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as PreviewRpcClient from "./services/PreviewRpcClient";
 
-const ApplicationReadyLoading = Schema.Struct({
-  version: Schema.Literal(ApplicationReadyStateVersion),
-  status: Schema.Literal("loading"),
-});
-
-const isApplicationReadyLoading = Schema.is(ApplicationReadyLoading);
+const runtime = ManagedRuntime.make(PreviewRpcClient.layer);
 
 /**
  * Marks the current application document as ready for capture.
@@ -17,11 +10,7 @@ const isApplicationReadyLoading = Schema.is(ApplicationReadyLoading);
  * This function has no effect when Preview is not capturing the document.
  */
 export const ready = (): void => {
-  const state = Reflect.get(
-    globalThis,
-    Symbol.for(ApplicationReadyStateKey),
-  );
-  if (isApplicationReadyLoading(state)) {
-    Reflect.set(state, "status", "ready");
-  }
+  PreviewRpcClient.PreviewRpcClient.use(({ ApplicationReady }) =>
+    ApplicationReady(),
+  ).pipe(Effect.exit, Effect.asVoid, runtime.runFork);
 };

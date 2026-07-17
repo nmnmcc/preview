@@ -26,7 +26,9 @@
 
   let confirmed = $state(false);
 
-  onMount(() => ready?.());
+  preview: {
+    onMount(() => ready?.());
+  }
 </script>
 
 <main class="stage" data-theme={theme}>

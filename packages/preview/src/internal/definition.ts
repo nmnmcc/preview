@@ -4,10 +4,7 @@ import {
   type ApplicationOptions,
   type ApplicationTarget,
 } from "./application-definition";
-import {
-  makeDefinition,
-  type PreviewDefinitionOf,
-} from "./definition-base";
+import { makeDefinition, type PreviewDefinitionOf } from "./definition-base";
 import type { PreviewMetadata } from "./preview-metadata";
 
 export {
@@ -46,12 +43,10 @@ export interface ComponentTarget {
 
 export type PreviewTarget = ComponentTarget | ApplicationTarget;
 
-export interface ComponentPreviewDefinition
-  extends PreviewDefinitionOf<ComponentTarget> {}
+export interface ComponentPreviewDefinition extends PreviewDefinitionOf<ComponentTarget> {}
 
 export type PreviewDefinition =
-  | ComponentPreviewDefinition
-  | ApplicationDefinition;
+  ComponentPreviewDefinition | ApplicationDefinition;
 
 export interface PreviewOptions extends PreviewMetadata {
   readonly mount: PreviewMount;
@@ -75,19 +70,11 @@ export const preview = (
 export function template<Input>(
   map: (input: Input) => PreviewOptions,
 ): PreviewTemplate<Input, ComponentPreviewDefinition>;
-export function template<
-  Input,
-  BaseInput,
-  Output extends PreviewDefinition,
->(
+export function template<Input, BaseInput, Output extends PreviewDefinition>(
   map: (input: Input) => NoInfer<BaseInput>,
   base: PreviewTemplate<BaseInput, Output>,
 ): PreviewTemplate<Input, Output>;
-export function template<
-  Input,
-  BaseInput,
-  Output extends PreviewDefinition,
->(
+export function template<Input, BaseInput, Output extends PreviewDefinition>(
   ...args:
     | readonly [map: (input: Input) => PreviewOptions]
     | readonly [

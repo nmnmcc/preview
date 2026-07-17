@@ -19,7 +19,9 @@ const ProjectRoute = ({ loaderData }: Route.ComponentProps) => {
       <article className="route-card">
         <span className="eyebrow">React Router loader</span>
         <h1>{loaderData.name}</h1>
-        <p>The Application preview opened this real route and ran its loader.</p>
+        <p>
+          The Application preview opened this real route and ran its loader.
+        </p>
       </article>
     </main>
   );

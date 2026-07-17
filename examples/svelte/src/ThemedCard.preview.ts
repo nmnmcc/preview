@@ -1,7 +1,7 @@
 import { matrix } from "@nmnmcc/preview";
 import { preview } from "@nmnmcc/preview-svelte";
-import ThemedCard from "./ThemedCard.svelte";
 import { PreviewThemeKey } from "./theme";
+import ThemedCard from "./ThemedCard.svelte";
 
 export default matrix(
   {

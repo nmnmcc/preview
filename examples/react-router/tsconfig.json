@@ -6,14 +6,8 @@
     "declarationMap": false,
     "jsx": "react-jsx",
     "noEmit": true,
-    "rootDirs": [
-      ".",
-      "./.react-router/types"
-    ],
-    "types": [
-      "node",
-      "vite/client"
-    ]
+    "rootDirs": [".", "./.react-router/types"],
+    "types": ["node", "vite/client"]
   },
   "include": [
     ".react-router/types",

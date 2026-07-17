@@ -24,25 +24,25 @@ export class PreviewProjectRunnerError extends Schema.TaggedErrorClass<PreviewPr
   }
 }
 
-const acquireViteServer = Effect.fn(
-  "PreviewProjectRunner.acquireViteServer",
-)(function* (root: string) {
-  return yield* Effect.acquireRelease(
-    Effect.tryPromise({
-      try: () =>
-        createServer({
-          root,
-          server: { host: "127.0.0.1", port: 0, strictPort: false },
-        }),
-      catch: (cause) =>
-        new PreviewProjectRunnerError({
-          detail: `Could not create a Vite server: ${String(cause)}`,
-          cause,
-        }),
-    }),
-    (server) => Effect.promise(() => server.close()),
-  );
-});
+const acquireViteServer = Effect.fn("PreviewProjectRunner.acquireViteServer")(
+  function* (root: string) {
+    return yield* Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () =>
+          createServer({
+            root,
+            server: { host: "127.0.0.1", port: 0, strictPort: false },
+          }),
+        catch: (cause) =>
+          new PreviewProjectRunnerError({
+            detail: `Could not create a Vite server: ${String(cause)}`,
+            cause,
+          }),
+      }),
+      (server) => Effect.promise(() => server.close()),
+    );
+  },
+);
 
 const listen = Effect.fn("PreviewProjectRunner.listen")(function* (
   server: ViteDevServer,
@@ -60,10 +60,7 @@ const listen = Effect.fn("PreviewProjectRunner.listen")(function* (
 export interface Interface {
   readonly generate: (
     options: GenerateOptions,
-  ) => Effect.Effect<
-    Generation.GenerationSummary,
-    PreviewProjectRunnerError
-  >;
+  ) => Effect.Effect<Generation.GenerationSummary, PreviewProjectRunnerError>;
 }
 
 export class ProjectRunner extends Context.Service<ProjectRunner, Interface>()(

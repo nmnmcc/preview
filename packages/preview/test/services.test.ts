@@ -1,21 +1,23 @@
 import { describe, it } from "@effect/vitest";
 import {
   assertInclude,
+  assertTrue,
   deepStrictEqual,
   strictEqual,
 } from "@effect/vitest/utils";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Ref from "effect/Ref";
 import * as Artifacts from "../src/internal/services/Artifacts";
 import * as Browser from "../src/internal/services/Browser";
 import * as Config from "../src/internal/services/Config";
 import * as Discovery from "../src/internal/services/Discovery";
 import * as Renderer from "../src/internal/services/Renderer";
 
-const configLayer = (
-  clean = false,
-  version?: Artifacts.VersionOptions,
-) =>
+const configLayer = (clean = false, version?: Artifacts.VersionOptions) =>
   Config.layer({
     artifacts: {
       clean,
@@ -44,7 +46,7 @@ const browserSession: Browser.Session = {
 const browserLayer = Layer.succeed(
   Browser.Browser,
   Browser.Browser.of({
-    launch: Effect.fnUntraced(function* () {
+    session: Effect.fnUntraced(function* () {
       return browserSession;
     }),
   }),
@@ -53,9 +55,9 @@ const browserLayer = Layer.succeed(
 const unusedBrowserLayer = Layer.succeed(
   Browser.Browser,
   Browser.Browser.of({
-    launch: Effect.fnUntraced(function* () {
+    session: Effect.fnUntraced(function* () {
       return yield* Effect.die(
-        new Error("The empty discovery path launched the browser."),
+        new Error("The empty discovery path opened a browser session."),
       );
     }),
   }),
@@ -70,20 +72,16 @@ const unusedArtifactsLayer = Layer.succeed(
       );
     }),
     cleanSource: Effect.fnUntraced(function* () {
-      return yield* Effect.die(
-        new Error("The empty path cleaned a source."),
-      );
+      return yield* Effect.die(new Error("The empty path cleaned a source."));
     }),
     isPathInDirectory: () => false,
-    ownedDirectories: Effect.fnUntraced(function* () {
+    outputDirectories: Effect.fnUntraced(function* () {
       return new Set<string>();
     }),
-    sourceDirectory: (writtenSource, output) =>
-      `${writtenSource}/${output}`,
+    outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+    sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
     write: Effect.fnUntraced(function* () {
-      return yield* Effect.die(
-        new Error("The empty path wrote an artifact."),
-      );
+      return yield* Effect.die(new Error("The empty path wrote an artifact."));
     }),
   }),
 );
@@ -113,9 +111,7 @@ const rendererLayer = (
   configuration = configLayer(),
 ) =>
   Renderer.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(discovery, artifacts, browser, configuration),
-    ),
+    Layer.provide(Layer.mergeAll(discovery, artifacts, browser, configuration)),
   );
 
 describe("preview services", () => {
@@ -153,9 +149,11 @@ describe("preview services", () => {
           );
         }),
         isPathInDirectory: () => false,
-        ownedDirectories: Effect.fnUntraced(function* () {
+        outputDirectories: Effect.fnUntraced(function* () {
           return new Set<string>();
         }),
+        outputDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
         sourceDirectory: (writtenSource, output) =>
           `${writtenSource}/${output}`,
         write: Effect.fnUntraced(function* () {
@@ -216,9 +214,11 @@ describe("preview services", () => {
           });
         }),
         isPathInDirectory: () => false,
-        ownedDirectories: Effect.fnUntraced(function* () {
+        outputDirectories: Effect.fnUntraced(function* () {
           return new Set<string>();
         }),
+        outputDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
         sourceDirectory: (writtenSource, output) =>
           `${writtenSource}/${output}`,
         write: Effect.fnUntraced(function* (input) {
@@ -271,7 +271,7 @@ describe("preview services", () => {
     const partialBrowserLayer = Layer.succeed(
       Browser.Browser,
       Browser.Browser.of({
-        launch: Effect.fnUntraced(function* () {
+        session: Effect.fnUntraced(function* () {
           return {
             probe: Effect.fnUntraced(function* () {
               return [
@@ -315,9 +315,11 @@ describe("preview services", () => {
           cleaned.push(input);
         }),
         isPathInDirectory: () => false,
-        ownedDirectories: Effect.fnUntraced(function* () {
+        outputDirectories: Effect.fnUntraced(function* () {
           return new Set<string>();
         }),
+        outputDirectory: (writtenSource, output) =>
+          `${writtenSource}/${output}`,
         sourceDirectory: (writtenSource, output) =>
           `${writtenSource}/${output}`,
         write: Effect.fnUntraced(function* (input) {
@@ -364,7 +366,7 @@ describe("preview services", () => {
     const incompleteBrowserLayer = Layer.succeed(
       Browser.Browser,
       Browser.Browser.of({
-        launch: Effect.fnUntraced(function* () {
+        session: Effect.fnUntraced(function* () {
           return {
             probe: Effect.fnUntraced(function* () {
               return [
@@ -414,7 +416,7 @@ describe("preview services", () => {
     const failedProbeBrowserLayer = Layer.succeed(
       Browser.Browser,
       Browser.Browser.of({
-        launch: Effect.fnUntraced(function* () {
+        session: Effect.fnUntraced(function* () {
           return {
             probe: Effect.fnUntraced(function* () {
               return yield* new Browser.PreviewBrowserError({
@@ -476,5 +478,162 @@ describe("preview services", () => {
         ),
       ),
     ),
+  );
+
+  it.effect(
+    "limits all nested page tasks and keeps artifact order stable",
+    () =>
+      Effect.gen(function* () {
+        const sources = [
+          "/project/First.preview.tsx",
+          "/project/Second.preview.tsx",
+        ] as const;
+        interface StartedTask {
+          readonly key: string;
+          readonly release: Deferred.Deferred<void>;
+        }
+        const started = yield* Queue.unbounded<StartedTask>();
+        const active = yield* Ref.make(0);
+        const maxActive = yield* Ref.make(0);
+
+        const pageTask = <A>(key: string, value: A) =>
+          Effect.gen(function* () {
+            const activeCount = yield* Ref.updateAndGet(
+              active,
+              (count) => count + 1,
+            );
+            yield* Ref.update(maxActive, (count) =>
+              Math.max(count, activeCount),
+            );
+            const release = yield* Deferred.make<void>();
+            yield* Queue.offer(started, { key, release });
+            return yield* Deferred.await(release).pipe(
+              Effect.as(value),
+              Effect.ensuring(Ref.update(active, (count) => count - 1)),
+            );
+          });
+
+        const concurrentBrowserLayer = Layer.succeed(
+          Browser.Browser,
+          Browser.Browser.of({
+            session: Effect.fnUntraced(function* () {
+              return {
+                probe: Effect.fnUntraced(function* (input) {
+                  return yield* pageTask(`probe:${input.source}`, [
+                    { metadata: {}, target: { type: "sandbox" } },
+                  ] satisfies ReadonlyArray<Browser.Target>);
+                }),
+                capture: Effect.fnUntraced(function* (input) {
+                  return yield* pageTask(
+                    `capture:${input.source}:${input.viewport.name}`,
+                    capturedPng,
+                  );
+                }),
+              } satisfies Browser.Session;
+            }),
+          }),
+        );
+        const concurrentDiscoveryLayer = Layer.succeed(
+          Discovery.Discovery,
+          Discovery.Discovery.of({
+            discover: Effect.fnUntraced(function* () {
+              return sources;
+            }),
+          }),
+        );
+        const concurrentArtifactsLayer = Layer.succeed(
+          Artifacts.Artifacts,
+          Artifacts.Artifacts.of({
+            cleanProject: Effect.fnUntraced(function* () {
+              return yield* Effect.die("Unexpected project clean");
+            }),
+            cleanSource: Effect.fnUntraced(function* () {
+              return yield* Effect.die("Unexpected source clean");
+            }),
+            isPathInDirectory: () => false,
+            outputDirectories: Effect.fnUntraced(function* () {
+              return new Set<string>();
+            }),
+            outputDirectory: (writtenSource, output) =>
+              `${writtenSource}/${output}`,
+            sourceDirectory: (writtenSource, output) =>
+              `${writtenSource}/${output}`,
+            write: Effect.fnUntraced(function* (input) {
+              return `${input.source}/${input.viewport}.png`;
+            }),
+          }),
+        );
+        const concurrentConfigLayer = Config.layer({
+          capture: {
+            concurrency: 2,
+            viewports: {
+              mobile: { width: 390, height: 844 },
+              desktop: { width: 1280, height: 720 },
+            },
+          },
+          files: { include: "**/*.preview.tsx" },
+        });
+
+        const summary = yield* Effect.gen(function* () {
+          const renderer = yield* Renderer.Renderer;
+          const renderFiber = yield* Effect.forkChild(
+            renderer.renderProject({
+              root: "/project",
+              baseUrl: "http://preview.test",
+            }),
+          );
+
+          const first = yield* Queue.take(started);
+          const second = yield* Queue.take(started);
+          assertTrue(first.key.startsWith("probe:"));
+          assertTrue(second.key.startsWith("probe:"));
+          strictEqual(yield* Ref.get(active), 2);
+          strictEqual(yield* Ref.get(maxActive), 2);
+
+          yield* Deferred.succeed(first.release, undefined);
+          const third = yield* Queue.take(started);
+          assertTrue(third.key.startsWith("capture:"));
+
+          const fourthFiber = yield* Effect.forkChild(Queue.take(started));
+          yield* Effect.yieldNow;
+          strictEqual(fourthFiber.pollUnsafe(), undefined);
+          strictEqual(yield* Ref.get(active), 2);
+
+          yield* Deferred.succeed(second.release, undefined);
+          const fourth = yield* Fiber.join(fourthFiber);
+          yield* Deferred.succeed(fourth.release, undefined);
+          const fifth = yield* Queue.take(started);
+          yield* Deferred.succeed(fifth.release, undefined);
+          const sixth = yield* Queue.take(started);
+          yield* Deferred.succeed(sixth.release, undefined);
+          yield* Deferred.succeed(third.release, undefined);
+
+          return yield* Fiber.join(renderFiber);
+        }).pipe(
+          Effect.provide(
+            rendererLayer(
+              concurrentDiscoveryLayer,
+              concurrentArtifactsLayer,
+              concurrentBrowserLayer,
+              concurrentConfigLayer,
+            ),
+          ),
+        );
+
+        strictEqual(yield* Ref.get(maxActive), 2);
+        deepStrictEqual(
+          summary.artifacts.map(({ source: artifactSource, viewport }) => ({
+            source: artifactSource,
+            viewport,
+          })),
+          [
+            { source: sources[0], viewport: "mobile" },
+            { source: sources[0], viewport: "desktop" },
+            { source: sources[1], viewport: "mobile" },
+            { source: sources[1], viewport: "desktop" },
+          ],
+        );
+        deepStrictEqual(summary.failures, []);
+      }),
   );
 });
