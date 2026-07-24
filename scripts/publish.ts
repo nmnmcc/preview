@@ -10,13 +10,25 @@ const PublicPackages = [
 
 const NpmRegistry = "https://registry.npmjs.org";
 
-const PublishResult = Schema.Struct({
+const PublishedResult = Schema.Struct({
   name: Schema.String,
   version: Schema.String,
   published: Schema.Boolean,
 });
 
-interface PublishResult extends Schema.Schema.Type<typeof PublishResult> {}
+const SkippedResult = Schema.Struct({
+  name: Schema.String,
+  version: Schema.String,
+  skipped: Schema.Literal(true),
+});
+
+const YarnPublishResult = Schema.Union([PublishedResult, SkippedResult]);
+
+interface PublishResult {
+  readonly name: string;
+  readonly version: string;
+  readonly published: boolean;
+}
 
 const parsePublishResult = (output: string): PublishResult => {
   for (const line of output.trimEnd().split(/\r?\n/).reverse()) {
@@ -28,9 +40,13 @@ const parsePublishResult = (output: string): PublishResult => {
       continue;
     }
 
-    const result = Schema.decodeUnknownOption(PublishResult)(value);
+    const result = Schema.decodeUnknownOption(YarnPublishResult)(value);
     if (Option.isSome(result)) {
-      return result.value;
+      return {
+        name: result.value.name,
+        version: result.value.version,
+        published: "published" in result.value ? result.value.published : false,
+      };
     }
   }
 
