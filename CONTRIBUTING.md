@@ -70,7 +70,7 @@ the other APIs by purpose. Keep the default export for the Vite plugin.
 Keep each subpath focused:
 
 - The browser entry has only browser-safe preview and matrix APIs.
-- The Application entry has `application`, `ready`, and their types.
+- The Application entry has `application`, `emit`, `done`, and their types.
 - The viewport entry has the fixed, readonly preset groups.
 - The internal runner entry is private to the Vite plugin.
 
