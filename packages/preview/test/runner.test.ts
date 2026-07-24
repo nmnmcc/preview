@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { afterEach } from "vitest";
 import { application } from "../src/Application";
-import { preview, type PreviewReady } from "../src/index";
+import { preview, type PreviewDone, type PreviewEmit } from "../src/index";
 import { runRequest } from "../src/internal/browser/program";
 import * as PreviewRunner from "../src/internal/browser/services/PreviewRunner";
 import * as Rpcs from "../src/internal/rpcs";
@@ -38,6 +38,11 @@ interface RunnerRequest {
   readonly variant?: string;
 }
 
+const defaultLifecycle: PreviewRunner.PreviewLifecycle = {
+  emit: async () => undefined,
+  done: () => undefined,
+};
+
 const setRunnerEnvironment = (
   definition: unknown,
   root: object | null,
@@ -58,6 +63,7 @@ const execute = (
   definition: unknown,
   root: object | null,
   request: RunnerRequest = {},
+  lifecycle: PreviewRunner.PreviewLifecycle = defaultLifecycle,
 ): Effect.Effect<PreviewRunner.PreviewExecution, Rpcs.SandboxPreviewError> => {
   const moduleUrl = setRunnerEnvironment(definition, root);
   const rpcRequest: Rpcs.SandboxPreviewRequest =
@@ -71,7 +77,7 @@ const execute = (
         });
   return Effect.gen(function* () {
     const runner = yield* PreviewRunner.PreviewRunner;
-    return yield* runner.execute(rpcRequest);
+    return yield* runner.execute(rpcRequest, lifecycle);
   }).pipe(Effect.provide(PreviewRunner.layer));
 };
 
@@ -82,9 +88,9 @@ const executeFailure = (
 ): Promise<Rpcs.SandboxPreviewError> =>
   Effect.runPromise(Effect.flip(execute(definition, root, request)));
 
-const requireFunction = <Arguments extends ReadonlyArray<unknown>>(
-  value: ((...arguments_: Arguments) => void) | undefined,
-): ((...arguments_: Arguments) => void) => {
+const requireFunction = <Arguments extends ReadonlyArray<unknown>, ReturnValue>(
+  value: ((...arguments_: Arguments) => ReturnValue) | undefined,
+): ((...arguments_: Arguments) => ReturnValue) => {
   if (value === undefined) throw new Error("The test signal is missing.");
   return value;
 };
@@ -116,6 +122,7 @@ describe("preview browser runner", () => {
                 ),
               ),
             ),
+          lifecycle: defaultLifecycle,
         }).pipe(Effect.forkChild);
         yield* Deferred.await(executeStarted);
         yield* Deferred.succeed(disposeRequested, undefined);
@@ -127,20 +134,24 @@ describe("preview browser runner", () => {
     ),
   );
 
-  it("waits for mount and ready, then disposes exactly once", async () => {
+  it("passes emit and done to mount, then disposes exactly once", async () => {
     const root = {};
     let finishMount: (() => void) | undefined;
-    let ready: PreviewReady | undefined;
+    let emit: PreviewEmit | undefined;
+    let done: PreviewDone | undefined;
     let signal: AbortSignal | undefined;
     let markMountCalled: (() => void) | undefined;
     let unmountCalls = 0;
+    let doneCalls = 0;
+    const emitted: Array<string> = [];
     const mountCalled = new Promise<void>((resolve) => {
       markMountCalled = resolve;
     });
     const definition = preview({
       mount: (context) => {
         strictEqual(context.root, root);
-        ready = context.ready;
+        emit = context.emit;
+        done = context.done;
         signal = context.signal;
         requireFunction(markMountCalled)();
         return new Promise((resolve) => {
@@ -153,19 +164,33 @@ describe("preview browser runner", () => {
       },
     });
 
-    const running = Effect.runPromise(execute(definition, root));
+    const running = Effect.runPromise(
+      execute(
+        definition,
+        root,
+        {},
+        {
+          emit: async (name) => {
+            emitted.push(name);
+          },
+          done: () => {
+            doneCalls += 1;
+          },
+        },
+      ),
+    );
     await mountCalled;
-    requireFunction(ready)();
-    requireFunction(ready)();
+    await requireFunction(emit)("loading");
+    requireFunction(done)();
     requireFunction(finishMount)();
 
     const execution = await running;
+    deepStrictEqual(emitted, ["loading"]);
+    strictEqual(doneCalls, 1);
     deepStrictEqual(execution.result, { type: "render" });
     await Effect.runPromise(execution.dispose);
     await Effect.runPromise(execution.dispose);
     strictEqual(signal?.aborted, true);
-    strictEqual(unmountCalls, 1);
-    requireFunction(ready)();
     strictEqual(unmountCalls, 1);
   });
 
@@ -216,16 +241,14 @@ describe("preview browser runner", () => {
     const calls: Array<string> = [];
     const collection = {
       ready: preview({
-        mount: ({ ready }) => {
+        mount: () => {
           calls.push("ready");
-          ready();
           return () => undefined;
         },
       }),
       error: preview({
-        mount: ({ ready }) => {
+        mount: () => {
           calls.push("error");
-          ready();
           return () => undefined;
         },
       }),
@@ -251,7 +274,7 @@ describe("preview browser runner", () => {
     );
   });
 
-  it("reports mount failures without waiting for ready", async () => {
+  it("reports mount failures", async () => {
     const error = await executeFailure(
       preview({
         mount: () => Promise.reject(new Error("mount failed")),

@@ -27,7 +27,10 @@ in
     }
   ];
 
-  packages = [ pkgs.git ];
+  packages = [
+    pkgs.actionlint
+    pkgs.git
+  ];
 
   env = {
     PLAYWRIGHT_BROWSERS_PATH = "${playwrightBrowsers}";

@@ -1,7 +1,12 @@
 {
   "name": "@nmnmcc/preview-svelte",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Define Svelte previews for @nmnmcc/preview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nmnmcc/preview.git",
+    "directory": "packages/svelte"
+  },
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": false,

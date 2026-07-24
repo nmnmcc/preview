@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PreviewReady } from "@nmnmcc/preview";
+  import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
   import { onMount } from "svelte";
   import "./card.css";
   import type { CardTheme } from "./theme";
@@ -8,9 +8,10 @@
     readonly action: string;
     readonly body: string;
     readonly confirmedAction: string;
+    readonly done?: PreviewDone;
+    readonly emit?: PreviewEmit;
     readonly eyebrow: string;
     readonly heading: string;
-    readonly ready?: PreviewReady;
     readonly theme?: CardTheme;
   }
 
@@ -18,16 +19,26 @@
     action,
     body,
     confirmedAction,
+    done,
+    emit,
     eyebrow,
     heading,
-    ready,
     theme = "light",
   }: Props = $props();
 
   let confirmed = $state(false);
 
   preview: {
-    onMount(() => ready?.());
+    onMount(() => {
+      if (done === undefined || emit === undefined) return;
+      let active = true;
+      void emit("default").then(() => {
+        if (active) done();
+      });
+      return () => {
+        active = false;
+      };
+    });
   }
 </script>
 

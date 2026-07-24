@@ -4,7 +4,11 @@ import * as Fiber from "effect/Fiber";
 import type * as Rpcs from "../rpcs";
 import { layer } from "./layer";
 import { PreviewRpcClient } from "./services/PreviewRpcClient";
-import { PreviewRunner, type PreviewExecution } from "./services/PreviewRunner";
+import {
+  PreviewRunner,
+  type PreviewExecution,
+  type PreviewLifecycle,
+} from "./services/PreviewRunner";
 
 export const runRequest = <
   RequestError,
@@ -20,13 +24,17 @@ export const runRequest = <
   readonly disposed: Effect.Effect<void, DisposedError>;
   readonly execute: (
     request: Rpcs.SandboxPreviewRequest,
+    lifecycle: PreviewLifecycle,
   ) => Effect.Effect<PreviewExecution, Rpcs.SandboxPreviewError>;
+  readonly lifecycle: PreviewLifecycle;
 }) =>
   Effect.gen(function* () {
     const request = yield* operations.request;
     const disposeFiber = yield* operations.awaitDispose.pipe(Effect.forkScoped);
 
-    const executeUntilDispose = Effect.exit(operations.execute(request)).pipe(
+    const executeUntilDispose = Effect.exit(
+      operations.execute(request, operations.lifecycle),
+    ).pipe(
       Effect.flatMap((execution) =>
         operations
           .complete(Exit.map(execution, ({ result }) => result))
@@ -47,12 +55,25 @@ export const runRequest = <
 export const run = Effect.gen(function* () {
   const client = yield* PreviewRpcClient;
   const runner = yield* PreviewRunner;
+  const context = yield* Effect.context<never>();
+  const runPromise = Effect.runPromiseWith(context);
+  const runFork = Effect.runForkWith(context);
+  let done = false;
+  const lifecycle: PreviewLifecycle = {
+    emit: (name) => runPromise(client.CaptureEmit({ name })),
+    done: () => {
+      if (done) return;
+      done = true;
+      runFork(client.CaptureDone().pipe(Effect.exit, Effect.asVoid));
+    },
+  };
   yield* runRequest({
     request: client.SandboxRequest(),
     complete: (exit) => client.SandboxComplete({ exit }),
     awaitDispose: client.SandboxAwaitDispose(),
     disposed: client.SandboxDisposed(),
     execute: runner.execute,
+    lifecycle,
   });
 });
 

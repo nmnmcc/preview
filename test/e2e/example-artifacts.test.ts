@@ -1,8 +1,11 @@
 import { Buffer } from "node:buffer";
-import { glob, readFile } from "node:fs/promises";
+import { glob, readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { Inspection } from "@nmnmcc/preview";
+import * as Schema from "effect/Schema";
 import { chromium, type Page } from "playwright";
 import { describe, test } from "vitest";
+import { InitialIssues } from "../../examples/react-router/app/features/issues/model";
 
 type ExamplePngStem = `examples/${string}/.preview/${string}/${string}`;
 type ExamplePngPath = `${ExamplePngStem}${string}.png`;
@@ -41,35 +44,99 @@ const tailwindViewports = [
 ] as const satisfies ReadonlyArray<ExpectedViewport>;
 
 const examplePngStems = [
-  "examples/react/src/.preview/Card.preview.tsx/",
-  "examples/react/src/.preview/ThemedCard.preview.tsx/locale=en,theme=light.",
-  "examples/react/src/.preview/ThemedCard.preview.tsx/locale=en,theme=dark.",
-  "examples/react/src/.preview/ThemedCard.preview.tsx/locale=zh,theme=light.",
-  "examples/react/src/.preview/ThemedCard.preview.tsx/locale=zh,theme=dark.",
-  "examples/react-router/app/components/.preview/Card.preview.tsx/",
-  "examples/react-router/app/routes/.preview/Project.preview.ts/",
-  "examples/vue/src/.preview/Card.preview.ts/",
-  "examples/vue/src/.preview/ThemedCard.preview.ts/theme=light.",
-  "examples/vue/src/.preview/ThemedCard.preview.ts/theme=dark.",
-  "examples/svelte/src/.preview/Card.preview.ts/",
-  "examples/svelte/src/.preview/ThemedCard.preview.ts/theme=light.",
-  "examples/svelte/src/.preview/ThemedCard.preview.ts/theme=dark.",
-  "examples/sveltekit/src/lib/.preview/Card.preview.ts/",
-  "examples/sveltekit/src/routes/items/[id]/.preview/Item.preview.ts/",
-  "examples/vinext-app/src/.preview/Card.preview.tsx/",
-  "examples/vinext-app/app/projects/[projectId]/.preview/Project.preview.ts/",
-  "examples/vinext-pages/src/.preview/Card.preview.tsx/",
-  "examples/vinext-pages/pages/projects/.preview/Project.preview.ts/",
+  "examples/react/src/.preview/Card.preview.tsx/default/",
+  "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=en,theme=light,",
+  "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=en,theme=dark,",
+  "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=zh,theme=light,",
+  "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=zh,theme=dark,",
+  "examples/vue/src/.preview/Card.preview.ts/default/",
+  "examples/vue/src/.preview/ThemedCard.preview.ts/default/theme=light,",
+  "examples/vue/src/.preview/ThemedCard.preview.ts/default/theme=dark,",
+  "examples/svelte/src/.preview/Card.preview.ts/default/",
+  "examples/svelte/src/.preview/ThemedCard.preview.ts/default/theme=light,",
+  "examples/svelte/src/.preview/ThemedCard.preview.ts/default/theme=dark,",
+  "examples/sveltekit/src/lib/.preview/Card.preview.ts/default/",
+  "examples/sveltekit/src/routes/items/[id]/.preview/Item.preview.ts/default/",
+  "examples/vinext-app/src/.preview/Card.preview.tsx/default/",
+  "examples/vinext-app/app/projects/[projectId]/.preview/Project.preview.ts/default/",
+  "examples/vinext-pages/src/.preview/Card.preview.tsx/default/",
+  "examples/vinext-pages/pages/projects/.preview/Project.preview.ts/default/",
 ] as const satisfies ReadonlyArray<ExamplePngStem>;
 
-const expectedPngs: ReadonlyArray<ExpectedPng> = tailwindViewports.flatMap(
-  ({ name, height, width }) =>
+const standardExpectedPngs: ReadonlyArray<ExpectedPng> =
+  tailwindViewports.flatMap(({ name, height, width }) =>
     examplePngStems.map((stem) => ({
-      file: `${stem}${name}.png` as const,
+      file: `${stem}viewport=${name}.png` as const,
       height,
       width,
     })),
-);
+  );
+
+const issueRowVariants = [
+  "locale=en,state=default",
+  "locale=en,state=selected",
+  "locale=en,state=blocked",
+  "locale=zh,state=default",
+  "locale=zh,state=selected",
+  "locale=zh,state=blocked",
+] as const;
+
+const issueRowStem =
+  "examples/react-router/app/components/issues/.preview/IssueRow.preview.tsx/default/";
+const issuesApplicationStem =
+  "examples/react-router/app/routes/.preview/Issues.preview.ts/default/";
+
+const issueInspectionViewports = [
+  { name: "desktop", height: 960, width: 1536 },
+  { name: "mobile", height: 844, width: 390 },
+] as const;
+
+const issueInspectionChecks = [
+  "detail-in-viewport",
+  "detail-visible",
+  "proof-in-detail",
+  "proof-unobscured",
+  "selected-issue-in-list",
+  "selected-issue-min-height",
+  "selected-issue-visible",
+  "workspace-content-fits",
+  "workspace-visible",
+] as const;
+
+const reactRouterExpectedPngs: ReadonlyArray<ExpectedPng> = [
+  ...issueRowVariants.flatMap((variant) => [
+    {
+      file: `${issueRowStem}${variant},viewport=mobile.png` as const,
+      height: 320,
+      width: 390,
+    },
+    {
+      file: `${issueRowStem}${variant},viewport=desktop.png` as const,
+      height: 320,
+      width: 960,
+    },
+  ]),
+  {
+    file: `${issuesApplicationStem}viewport=mobile.png`,
+    height: 844,
+    width: 390,
+  },
+  {
+    file: `${issuesApplicationStem}viewport=desktop.png`,
+    height: 960,
+    width: 1536,
+  },
+  ...issueInspectionViewports.map(({ name, height, width }) => ({
+    file: `${issuesApplicationStem}viewport=${name}.inspect/overview.png` as const,
+    height,
+    width,
+  })),
+];
+
+const expectedPngs: ReadonlyArray<ExpectedPng> = [
+  ...standardExpectedPngs,
+  ...reactRouterExpectedPngs,
+];
 
 const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -132,6 +199,105 @@ describe("generated example artifacts", () => {
     );
   });
 
+  test("writes complete Preview Lab inspection bundles", async ({ expect }) => {
+    for (const { name } of issueInspectionViewports) {
+      const directory = new URL(
+        `../../${issuesApplicationStem}viewport=${name}.inspect/`,
+        import.meta.url,
+      );
+      expect((await readdir(directory)).toSorted()).toStrictEqual([
+        "README.md",
+        "capture.json",
+        "checks.json",
+        "manifest.json",
+        "nodes.json",
+        "overview.png",
+      ]);
+    }
+    const legacy = await Array.fromAsync(
+      glob(`${issuesApplicationStem}viewport=*.inspect*.{html,json,png}`, {
+        cwd: workspaceRoot,
+      }),
+    );
+    expect(legacy).toStrictEqual([]);
+  });
+
+  test("uses proof paths that point to generated artifacts", async ({
+    expect,
+  }) => {
+    const paths = [...new Set(InitialIssues.map(({ proof }) => proof))];
+    const sizes = await Promise.all(
+      paths.map(async (proof) => {
+        const contents = await readFile(
+          new URL(`../../examples/react-router/${proof}`, import.meta.url),
+        );
+        return contents.byteLength;
+      }),
+    );
+
+    for (const size of sizes) expect(size).toBeGreaterThan(0);
+  });
+
+  test.concurrent.for(issueInspectionViewports)(
+    "$name Preview Lab inspection has nine passing checks",
+    async ({ name, height, width }, { expect }) => {
+      const directory = `../../${issuesApplicationStem}viewport=${name}.inspect/`;
+      const manifestText = await readFile(
+        new URL(`${directory}manifest.json`, import.meta.url),
+        "utf8",
+      );
+      const input: unknown = JSON.parse(manifestText);
+      const manifest = Schema.decodeUnknownSync(Inspection.Manifest)(input, {
+        onExcessProperty: "error",
+      });
+      const capture = Schema.decodeUnknownSync(Inspection.Capture)(
+        JSON.parse(
+          await readFile(
+            new URL(`${directory}${manifest.files.capture}`, import.meta.url),
+            "utf8",
+          ),
+        ),
+        { onExcessProperty: "error" },
+      );
+      const checks = Schema.decodeUnknownSync(Inspection.Checks)(
+        JSON.parse(
+          await readFile(
+            new URL(`${directory}${manifest.files.checks}`, import.meta.url),
+            "utf8",
+          ),
+        ),
+        { onExcessProperty: "error" },
+      );
+
+      expect(manifest.target).toStrictEqual({
+        source: "Issues.preview.ts",
+        state: "default",
+        viewport: name,
+      });
+      expect(capture).toMatchObject({
+        deviceScaleFactor: 1,
+        fullPage: false,
+        pngHeight: height,
+        pngWidth: width,
+        scale: "css",
+      });
+      expect(checks).toStrictEqual(
+        issueInspectionChecks.map((checkName) => ({
+          name: checkName,
+          status: "passed",
+          message: expect.any(String),
+        })),
+      );
+      expect(manifest.findings).toStrictEqual([]);
+      const readme = await readFile(
+        new URL(`${directory}README.md`, import.meta.url),
+        "utf8",
+      );
+      expect(readme).toContain("## Checks");
+      expect(readme).toContain("workspace-visible");
+    },
+  );
+
   test.concurrent.for(expectedPngs)(
     "$file has a PNG header and is $width×$height",
     async ({ file, height, width }, { expect }) => {
@@ -159,7 +325,7 @@ describe("generated example artifacts", () => {
     try {
       const page = await browser.newPage();
       const decoded = new Map<ExamplePngPath, DecodedPng>();
-      for (const { file } of expectedPngs.filter(({ file }) =>
+      for (const { file } of standardExpectedPngs.filter(({ file }) =>
         file.endsWith("base.png"),
       )) {
         const image = await decodePng(page, file);
@@ -183,46 +349,83 @@ describe("generated example artifacts", () => {
 
       expect(
         distinct(
-          "examples/react/src/.preview/ThemedCard.preview.tsx/locale=en,theme=light.base.png",
-          "examples/react/src/.preview/ThemedCard.preview.tsx/locale=en,theme=dark.base.png",
-          "examples/react/src/.preview/ThemedCard.preview.tsx/locale=zh,theme=light.base.png",
-          "examples/react/src/.preview/ThemedCard.preview.tsx/locale=zh,theme=dark.base.png",
+          "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=en,theme=light,viewport=base.png",
+          "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=en,theme=dark,viewport=base.png",
+          "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=zh,theme=light,viewport=base.png",
+          "examples/react/src/.preview/ThemedCard.preview.tsx/default/locale=zh,theme=dark,viewport=base.png",
         ),
       ).toBe(4);
       expect(
         distinct(
-          "examples/vue/src/.preview/ThemedCard.preview.ts/theme=light.base.png",
-          "examples/vue/src/.preview/ThemedCard.preview.ts/theme=dark.base.png",
+          "examples/vue/src/.preview/ThemedCard.preview.ts/default/theme=light,viewport=base.png",
+          "examples/vue/src/.preview/ThemedCard.preview.ts/default/theme=dark,viewport=base.png",
         ),
       ).toBe(2);
       expect(
         distinct(
-          "examples/svelte/src/.preview/ThemedCard.preview.ts/theme=light.base.png",
-          "examples/svelte/src/.preview/ThemedCard.preview.ts/theme=dark.base.png",
+          "examples/svelte/src/.preview/ThemedCard.preview.ts/default/theme=light,viewport=base.png",
+          "examples/svelte/src/.preview/ThemedCard.preview.ts/default/theme=dark,viewport=base.png",
         ),
       ).toBe(2);
       expect(
         distinct(
-          "examples/react-router/app/components/.preview/Card.preview.tsx/base.png",
-          "examples/react-router/app/routes/.preview/Project.preview.ts/base.png",
+          "examples/sveltekit/src/lib/.preview/Card.preview.ts/default/viewport=base.png",
+          "examples/sveltekit/src/routes/items/[id]/.preview/Item.preview.ts/default/viewport=base.png",
+        ),
+      ).toBe(2);
+
+      const reactRouterDecoded = new Map<ExamplePngPath, DecodedPng>();
+      for (const { file, height, width } of reactRouterExpectedPngs) {
+        const image = await decodePng(page, file);
+        expect(image).toMatchObject({ height, uniform: false, width });
+        reactRouterDecoded.set(file, image);
+      }
+
+      const reactRouterSignature = (file: ExamplePngPath): string => {
+        const image = reactRouterDecoded.get(file);
+        if (image === undefined) {
+          throw new Error(`The decoded image is missing: ${file}`);
+        }
+        return signature(image);
+      };
+
+      for (const viewport of ["mobile", "desktop"] as const) {
+        expect(
+          new Set(
+            issueRowVariants.map((variant) =>
+              reactRouterSignature(
+                `${issueRowStem}${variant},viewport=${viewport}.png`,
+              ),
+            ),
+          ).size,
+        ).toBe(issueRowVariants.length);
+      }
+
+      expect(
+        new Set([
+          reactRouterSignature(`${issuesApplicationStem}viewport=mobile.png`),
+          reactRouterSignature(`${issuesApplicationStem}viewport=desktop.png`),
+        ]).size,
+      ).toBe(2);
+      for (const { name } of issueInspectionViewports) {
+        expect(
+          reactRouterSignature(
+            `${issuesApplicationStem}viewport=${name}.inspect/overview.png`,
+          ),
+        ).not.toBe(
+          reactRouterSignature(`${issuesApplicationStem}viewport=${name}.png`),
+        );
+      }
+      expect(
+        distinct(
+          "examples/vinext-app/src/.preview/Card.preview.tsx/default/viewport=base.png",
+          "examples/vinext-app/app/projects/[projectId]/.preview/Project.preview.ts/default/viewport=base.png",
         ),
       ).toBe(2);
       expect(
         distinct(
-          "examples/sveltekit/src/lib/.preview/Card.preview.ts/base.png",
-          "examples/sveltekit/src/routes/items/[id]/.preview/Item.preview.ts/base.png",
-        ),
-      ).toBe(2);
-      expect(
-        distinct(
-          "examples/vinext-app/src/.preview/Card.preview.tsx/base.png",
-          "examples/vinext-app/app/projects/[projectId]/.preview/Project.preview.ts/base.png",
-        ),
-      ).toBe(2);
-      expect(
-        distinct(
-          "examples/vinext-pages/src/.preview/Card.preview.tsx/base.png",
-          "examples/vinext-pages/pages/projects/.preview/Project.preview.ts/base.png",
+          "examples/vinext-pages/src/.preview/Card.preview.tsx/default/viewport=base.png",
+          "examples/vinext-pages/pages/projects/.preview/Project.preview.ts/default/viewport=base.png",
         ),
       ).toBe(2);
     } finally {

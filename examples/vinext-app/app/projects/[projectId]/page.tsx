@@ -1,6 +1,6 @@
 "use client";
 
-import { ready } from "@nmnmcc/preview/application";
+import { done, emit } from "@nmnmcc/preview/application";
 import { use, useEffect } from "react";
 
 const ProjectPage = ({ params }: PageProps<"/projects/[projectId]">) => {
@@ -8,7 +8,7 @@ const ProjectPage = ({ params }: PageProps<"/projects/[projectId]">) => {
 
   preview: {
     useEffect(() => {
-      ready();
+      void emit("default").then(done);
     }, []);
   }
 

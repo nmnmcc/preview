@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { nextTick, onMounted, ref } from "vue";
 import type { CardTheme } from "./theme";
 
@@ -7,9 +7,10 @@ interface Props {
   readonly action: string;
   readonly body: string;
   readonly confirmedAction: string;
+  readonly done?: PreviewDone;
+  readonly emit?: PreviewEmit;
   readonly eyebrow: string;
   readonly heading: string;
-  readonly ready?: PreviewReady;
   readonly theme?: CardTheme;
 }
 
@@ -17,9 +18,10 @@ const {
   action,
   body,
   confirmedAction,
+  done,
+  emit,
   eyebrow,
   heading,
-  ready,
   theme = "light",
 } = defineProps<Props>();
 
@@ -28,7 +30,10 @@ const confirmed = ref(false);
 preview: {
   onMounted(async () => {
     await nextTick();
-    ready?.();
+    if (done !== undefined && emit !== undefined) {
+      await emit("default");
+      done();
+    }
   });
 }
 </script>

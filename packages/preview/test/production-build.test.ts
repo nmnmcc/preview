@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import { build, createBuilder, type PluginOption } from "vite";
 import preview from "../src/index";
 import { ApplicationModuleId } from "../src/internal/check";
-import { ApplicationReadyCodeSignature } from "../src/internal/rpcs";
+import { ApplicationLifecycleCodeSignature } from "../src/internal/rpcs";
 
 const workspaceRoot = resolve(
   fileURLToPath(new URL("../../../", import.meta.url)),
@@ -99,7 +99,7 @@ describe("production builds", () => {
   it("removes a Preview-labeled React lifecycle block", () =>
     withProject(
       {
-        "src/main.tsx": `import { ready as signal } from "@nmnmcc/preview/application";
+        "src/main.tsx": `import { done as signal } from "@nmnmcc/preview/application";
 
 const useEffect = (effect: () => void) => effect;
 
@@ -113,7 +113,7 @@ console.log("react-kept");
       async (root) => {
         const code = outputCode(await buildProject(root, "src/main.tsx"));
         assertInclude(code, "react-kept");
-        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
+        strictEqual(code.includes(ApplicationLifecycleCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -149,21 +149,21 @@ console.log("kept");
       },
     ));
 
-  it("reports bundled ready code by default", () =>
+  it("reports bundled capture lifecycle code by default", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
+        "src/main.ts": `import { done } from "@nmnmcc/preview/application";
 preview: {
-  queueMicrotask(ready);
+  queueMicrotask(done);
 }
 
-ready();
+done();
 `,
       },
       async (root) => {
         await rejects(
           buildProject(root, "src/main.ts"),
-          /Application ready runtime/u,
+          /Application capture lifecycle runtime/u,
         );
       },
     ));
@@ -186,12 +186,12 @@ console.log(application({ location: "/projects/42" }));
   it("lets check false skip only the final bundle check", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
+        "src/main.ts": `import { done } from "@nmnmcc/preview/application";
 preview: {
-  queueMicrotask(ready);
+  queueMicrotask(done);
 }
 
-ready();
+done();
 `,
       },
       async (root) => {
@@ -208,7 +208,7 @@ ready();
           root,
         });
         const code = outputCode(result);
-        assertInclude(code, ApplicationReadyCodeSignature);
+        assertInclude(code, ApplicationLifecycleCodeSignature);
         strictEqual(code.includes("queueMicrotask"), false);
       },
     ));
@@ -236,8 +236,8 @@ ready();
   it("reports an external Application import in an SSR build", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
-export const render = ready;
+        "src/main.ts": `import { emit } from "@nmnmcc/preview/application";
+export const render = emit;
 `,
       },
       async (root) => {
@@ -264,9 +264,9 @@ export const render = ready;
   it("removes a Preview-labeled block in an SSR build", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
+        "src/main.ts": `import { done } from "@nmnmcc/preview/application";
 preview: {
-  queueMicrotask(ready);
+  queueMicrotask(done);
 }
 export const render = "ssr-kept";
 `,
@@ -288,7 +288,7 @@ export const render = "ssr-kept";
           }),
         );
         assertInclude(code, "ssr-kept");
-        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
+        strictEqual(code.includes(ApplicationLifecycleCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -296,9 +296,9 @@ export const render = "ssr-kept";
   it("removes a Preview-labeled block in a custom environment", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
+        "src/main.ts": `import { done } from "@nmnmcc/preview/application";
 preview: {
-  queueMicrotask(ready);
+  queueMicrotask(done);
 }
 export const boot = "edge-kept";
 `,
@@ -325,7 +325,7 @@ export const boot = "edge-kept";
           throw new Error("The edge environment is missing.");
         const code = outputCode(await builder.build(edge));
         assertInclude(code, "edge-kept");
-        strictEqual(code.includes(ApplicationReadyCodeSignature), false);
+        strictEqual(code.includes(ApplicationLifecycleCodeSignature), false);
         strictEqual(code.includes("preview:"), false);
       },
     ));
@@ -333,8 +333,8 @@ export const boot = "edge-kept";
   it("reports the name of a custom Vite build environment", () =>
     withProject(
       {
-        "src/main.ts": `import { ready } from "@nmnmcc/preview/application";
-export const boot = ready;
+        "src/main.ts": `import { emit } from "@nmnmcc/preview/application";
+export const boot = emit;
 `,
       },
       async (root) => {

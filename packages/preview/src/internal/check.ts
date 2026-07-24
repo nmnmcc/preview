@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { ApplicationDefinitionCodeSignature } from "./definition";
-import { ApplicationReadyCodeSignature } from "./rpcs";
+import { ApplicationLifecycleCodeSignature } from "./rpcs";
 
 export const ApplicationModuleId = "@nmnmcc/preview/application";
 export const PreviewLabel = "preview";
@@ -48,8 +48,8 @@ const hasPreviewLabel = (value: unknown): boolean => {
 
 const CodeSignatures = [
   {
-    label: "Application ready runtime",
-    value: ApplicationReadyCodeSignature,
+    label: "Application capture lifecycle runtime",
+    value: ApplicationLifecycleCodeSignature,
   },
   {
     label: "Application preview definition",

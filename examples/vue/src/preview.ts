@@ -18,8 +18,8 @@ export const preview = template(
     ...metadata
   }: AppPreviewOptions): VuePreviewOptions => ({
     ...metadata,
-    render: ({ ready }) =>
-      h(ThemeProvider, { theme }, { default: () => render({ ready }) }),
+    render: ({ done, emit }) =>
+      h(ThemeProvider, { theme }, { default: () => render({ done, emit }) }),
   }),
   vuePreview,
 );

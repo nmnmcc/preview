@@ -53,7 +53,7 @@ import Card from "./Card.svelte";
 
 export default preview({
   component: Card,
-  props: ({ ready }) => ({ ready }),
+  props: ({ done, emit }) => ({ done, emit }),
 });
 ```
 
@@ -61,13 +61,18 @@ Call the given function after the component is mounted:
 
 ```svelte
 <script lang="ts">
-  import type { PreviewReady } from "@nmnmcc/preview";
+  import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
   import { onMount } from "svelte";
 
-  let { ready }: { readonly ready: PreviewReady } = $props();
+  let {
+    done,
+    emit,
+  }: { readonly done: PreviewDone; readonly emit: PreviewEmit } = $props();
 
   preview: {
-    onMount(ready);
+    onMount(() => {
+      void emit("default").then(done);
+    });
   }
 </script>
 

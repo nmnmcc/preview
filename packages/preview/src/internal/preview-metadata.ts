@@ -1,3 +1,5 @@
+import type * as Inspection from "./inspection";
+
 export type PreviewViewportHeight = number | "full" | `full-${number}`;
 
 export interface PreviewViewport {
@@ -16,4 +18,5 @@ export type PreviewViewportOverride =
 
 export interface PreviewMetadata {
   readonly viewports?: Readonly<Record<string, PreviewViewportOverride>>;
+  readonly inspection?: false | Inspection.Definition;
 }

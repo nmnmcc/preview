@@ -15,7 +15,8 @@ npx skills add nmnmcc/preview --skill preview
 ```
 
 Use `$preview` for framework setup, Application routes, capture settings,
-matrices, artifacts, versioning, and CI generation.
+matrices, filesystem layout inspections, artifacts, versioning, and CI
+generation.
 
 ## Minimal setup
 
@@ -51,13 +52,14 @@ Add `src/Card.preview.ts`:
 import { preview } from "@nmnmcc/preview";
 
 export default preview({
-  mount: ({ root, ready }) => {
+  mount: async ({ root, emit, done }) => {
     const card = document.createElement("article");
     card.textContent = "Hello Preview";
     root.append(card);
 
     preview: {
-      ready();
+      await emit("default");
+      done();
     }
 
     return () => card.remove();
@@ -74,7 +76,8 @@ Run the preview:
 yarn preview generate src/Card.preview.ts
 ```
 
-The default output is `src/.preview/Card.preview.ts/desktop.png`.
+The default output is
+`src/.preview/Card.preview.ts/default/viewport=desktop.png`.
 
 Use `@nmnmcc/preview-react`, `@nmnmcc/preview-vue`, or
 `@nmnmcc/preview-svelte` for framework components. Do not import

@@ -9,7 +9,7 @@ import {
 } from "effect/unstable/rpc/RpcClientError";
 import type * as RpcMessage from "effect/unstable/rpc/RpcMessage";
 import {
-  ApplicationReadyCodeSignature,
+  ApplicationLifecycleCodeSignature,
   PreviewRpcBindingName,
   PreviewRpcBindingRequest,
   PreviewRpcBindingResponse,
@@ -165,7 +165,7 @@ const PreviewRpcProtocol = RpcClient.Protocol.of({
 export class PreviewRpcClient extends Context.Service<
   PreviewRpcClient,
   RpcClient.FromGroup<typeof PreviewRpcs, RpcClientError>
->()(ApplicationReadyCodeSignature) {}
+>()(ApplicationLifecycleCodeSignature) {}
 
 /** Provides the browser transport used by Effect RPC clients. */
 export const protocol = Layer.succeed(RpcClient.Protocol, PreviewRpcProtocol);

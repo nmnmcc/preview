@@ -1,7 +1,12 @@
 {
   "name": "@nmnmcc/preview-vue",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Define Vue previews for @nmnmcc/preview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nmnmcc/preview.git",
+    "directory": "packages/vue"
+  },
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": false,

@@ -48,23 +48,29 @@ export default defineConfig({
 Add `Card.preview.tsx`:
 
 ```tsx
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { preview } from "@nmnmcc/preview-react";
 import { useEffect } from "react";
 import { Card } from "./Card";
 
-const Subject = ({ ready }: { readonly ready: PreviewReady }) => {
+const Subject = ({
+  done,
+  emit,
+}: {
+  readonly done: PreviewDone;
+  readonly emit: PreviewEmit;
+}) => {
   preview: {
     useEffect(() => {
-      ready();
-    }, [ready]);
+      void emit("default").then(done);
+    }, [done, emit]);
   }
 
   return <Card />;
 };
 
 export default preview({
-  render: ({ ready }) => <Subject ready={ready} />,
+  render: ({ done, emit }) => <Subject done={done} emit={emit} />,
 });
 ```
 

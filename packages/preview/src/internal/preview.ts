@@ -5,6 +5,7 @@ import {
   type PreviewDefinition as Definition,
   type PreviewMount as Mount,
 } from "./definition";
+import * as Inspection from "./inspection";
 import type {
   PreviewMetadata as PreviewMetadataType,
   PreviewViewportHeight as PreviewViewportHeightType,
@@ -78,6 +79,9 @@ export const PreviewMetadata = Schema.toStandardSchemaV1(
         Schema.isMinProperties(1),
       ),
     ),
+    inspection: Schema.optionalKey(
+      Schema.Union([Schema.Literal(false), Inspection.Definition]),
+    ),
   }),
 ) satisfies Schema.Codec<PreviewMetadataType>;
 
@@ -142,7 +146,8 @@ export type {
   ComponentTarget,
   PreviewMount,
   PreviewMountContext,
-  PreviewReady,
+  PreviewDone,
+  PreviewEmit,
   PreviewOptions,
   PreviewTarget,
   PreviewTemplate,

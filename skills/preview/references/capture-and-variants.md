@@ -9,6 +9,8 @@ Named settings make PNG paths stable and easy to read in local work and CI.
 ## Contents
 
 - Configure discovery and capture
+- Handle Vite document reloads
+- Capture named states
 - Set Playwright options
 - Use viewport presets
 - Capture full pages
@@ -61,11 +63,53 @@ part of its artifact name. Use short names that will stay meaningful.
 default is `node:os.availableParallelism()`. Set it to `1` when a project or CI
 environment needs sequential page work.
 
-`capture.timeoutMs` controls navigation, the ready signal, and async unmount
-work. Fix missing readiness or slow required work before increasing it.
+`capture.timeoutMs` controls navigation, each lifecycle stage, and async
+unmount work. Fix missing lifecycle calls or slow required work before
+increasing it.
 
 Read [Artifacts and CLI](artifacts-and-cli.md) before changing output or clean
 rules.
+
+## Handle Vite document reloads
+
+Vite may find a new dependency during a cold development start. After it
+updates the dependency cache, it broadcasts a full reload. Preview starts a
+new capture transaction and reloads the same Playwright page. It keeps the
+same browser context.
+
+Preview drops states, completion messages, failures, and disposal work from
+the old document. It writes artifacts only from the document that still owns
+the page. A reload is not lifecycle progress, so it does not restart the
+`capture.timeoutMs` budget for the next `emit()` or `done()` call. A failure in
+the current document still fails the target.
+
+No retry or warmup setting is needed for this case. A page that keeps reloading
+will reach the normal timeout instead of starting an unlimited capture.
+
+## Capture named states
+
+Every render must emit at least one state and then call `done()`. The state
+name keeps different moments separate from matrix variants:
+
+```ts
+export default preview({
+  mount: async ({ root, emit, done }) => {
+    root.textContent = "Loading"
+    await emit("loading")
+
+    root.textContent = "Loaded"
+    await emit("loaded")
+    done()
+
+    return () => root.replaceChildren()
+  }
+})
+```
+
+`emit(name)` returns a Promise. Its image and optional inspection bundle are
+staged before the Promise resolves. Await calls in order. Do not emit two
+states at once, reuse a name, emit after `done()`, call `done()` before the
+first emit, or call `done()` while an emit is still running.
 
 ## Set Playwright options
 
@@ -106,7 +150,7 @@ Keep these boundaries:
   style, and screenshot timeout behavior. Preview always asks for a PNG buffer
   and writes the file itself.
 - Preview owns navigation options. Use `capture.timeoutMs` for navigation and
-  readiness.
+  lifecycle stages.
 - Playwright checks the option values that it receives.
 
 Preview starts Chromium only when a generation has at least one preview file.
@@ -185,7 +229,7 @@ export default preview({
     mobile: true,
     desktop: { height: "full-960" }
   },
-  render: ({ ready }) => <Subject ready={ready} />
+  render: ({ done, emit }) => <Subject done={done} emit={emit} />
 })
 ```
 
@@ -211,8 +255,8 @@ export default matrix(
   ({ theme, state }) =>
     preview({
       theme,
-      render: ({ ready }) => (
-        <Card ready={ready} state={state} />
+      render: ({ done, emit }) => (
+        <Card done={done} emit={emit} state={state} />
       )
     })
 )
@@ -238,8 +282,8 @@ A manual named collection is also valid:
 
 ```tsx
 export default {
-  empty: preview({ render: ({ ready }) => <Empty ready={ready} /> }),
-  filled: preview({ render: ({ ready }) => <Filled ready={ready} /> })
+  empty: preview({ render: ({ done, emit }) => <Empty done={done} emit={emit} /> }),
+  filled: preview({ render: ({ done, emit }) => <Filled done={done} emit={emit} /> })
 }
 ```
 
@@ -250,11 +294,11 @@ targets.
 Matrix artifacts use the variant and viewport in a stable name:
 
 ```text
-.preview/Card.preview.tsx/theme=light,state=ready.desktop.png
+.preview/Card.preview.tsx/default/theme=light,state=ready,viewport=desktop.png
 ```
 
 A single definition uses only the viewport name:
 
 ```text
-.preview/Card.preview.tsx/desktop.png
+.preview/Card.preview.tsx/default/viewport=desktop.png
 ```

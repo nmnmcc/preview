@@ -13,6 +13,6 @@ export default matrix(
     preview({
       component: ThemedCard,
       context: new Map([[PreviewThemeKey, theme]]),
-      props: ({ ready }) => ({ ready }),
+      props: ({ done, emit }) => ({ done, emit }),
     }),
 );

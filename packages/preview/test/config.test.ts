@@ -6,7 +6,7 @@ import {
   deepStrictEqual,
   strictEqual,
 } from "@effect/vitest/utils";
-import { ViewportPresets } from "@nmnmcc/preview";
+import { Inspection, ViewportPresets } from "@nmnmcc/preview";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import {
@@ -33,6 +33,7 @@ describe("preview configuration", () => {
       deepStrictEqual(config.exclude, []);
       strictEqual(config.output, ".preview");
       strictEqual(config.concurrency, availableParallelism());
+      strictEqual(config.inspection, false);
       strictEqual(config.timeoutMs, 30_000);
       strictEqual(config.version, undefined);
       deepStrictEqual(config.viewports.mobile, {
@@ -222,6 +223,34 @@ describe("preview configuration", () => {
     }),
   );
 
+  it.effect("uses matrix tokens for project and preview viewport names", () =>
+    Effect.gen(function* () {
+      const valid = yield* resolvePreviewOptions({
+        capture: {
+          viewports: { "desktop-2": { width: 1440, height: 900 } },
+        },
+      });
+      strictEqual(valid.viewports["desktop-2"]?.name, "desktop-2");
+
+      const invalidProject = yield* Effect.result(
+        resolvePreviewOptions({
+          capture: {
+            viewports: { "desktop.inspect": { width: 1440, height: 900 } },
+          },
+        }),
+      );
+      assertTrue(Result.isFailure(invalidProject));
+
+      const invalidMetadata = yield* Effect.result(
+        resolvePreviewMetadata(
+          { viewports: { "desktop.inspect": { width: 1440 } } },
+          valid,
+        ),
+      );
+      assertTrue(Result.isFailure(invalidMetadata));
+    }),
+  );
+
   it.effect("selects, overrides, and adds per-file viewports", () =>
     Effect.gen(function* () {
       const config = yield* resolvePreviewOptions({
@@ -251,6 +280,45 @@ describe("preview configuration", () => {
         },
         { name: "poster", width: 600, height: 1200, deviceScaleFactor: 1 },
       ]);
+    }),
+  );
+
+  it.effect("resolves project and per-preview inspection settings", () =>
+    Effect.gen(function* () {
+      const disabledProject = yield* resolvePreviewOptions({
+        capture: { viewports: { mobile: { width: 390, height: 844 } } },
+      });
+      const definition = Inspection.define({
+        elements: { card: "#card" },
+        checks: ({ card }) => ({ visible: Inspection.visible(card) }),
+      });
+      const disabledDefinition = yield* Effect.result(
+        resolvePreviewMetadata({ inspection: definition }, disabledProject),
+      );
+      assertTrue(Result.isFailure(disabledDefinition));
+      if (Result.isFailure(disabledDefinition)) {
+        assertInclude(disabledDefinition.failure.detail, "capture.inspection");
+      }
+
+      const project = yield* resolvePreviewOptions({
+        capture: {
+          inspection: true,
+          viewports: { mobile: { width: 390, height: 844 } },
+        },
+      });
+      strictEqual(project.inspection, true);
+      const defaultInspection = yield* resolvePreviewMetadata({}, project);
+      deepStrictEqual(defaultInspection.inspection, {});
+      const selected = yield* resolvePreviewMetadata(
+        { inspection: definition },
+        project,
+      );
+      deepStrictEqual(selected.inspection, definition);
+      const optedOut = yield* resolvePreviewMetadata(
+        { inspection: false },
+        project,
+      );
+      strictEqual(optedOut.inspection, undefined);
     }),
   );
 

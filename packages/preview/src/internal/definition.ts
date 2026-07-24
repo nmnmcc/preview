@@ -22,13 +22,18 @@ export type {
 
 export { PreviewDefinitionTypeId } from "./definition-base";
 
-export type PreviewReady = () => void;
+/** Captures one unique named state and resolves after it is staged. */
+export type PreviewEmit = (name: string) => Promise<void>;
+
+/** Ends capture after at least one emitted state. */
+export type PreviewDone = () => void;
 
 export type PreviewUnmount = () => void | Promise<void>;
 
 export interface PreviewMountContext {
   readonly root: HTMLElement;
-  readonly ready: PreviewReady;
+  readonly emit: PreviewEmit;
+  readonly done: PreviewDone;
   readonly signal: AbortSignal;
 }
 

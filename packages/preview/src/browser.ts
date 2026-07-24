@@ -12,9 +12,10 @@ export { preview } from "./internal/definition";
 export type {
   ComponentPreviewDefinition,
   PreviewDefinition,
+  PreviewDone,
+  PreviewEmit,
   PreviewMount,
   PreviewMountContext,
-  PreviewReady,
   PreviewOptions,
   PreviewUnmount,
 } from "./internal/definition";
@@ -38,3 +39,8 @@ export * as Preview from "./Preview";
  * APIs for preview matrices.
  */
 export * as PreviewMatrix from "./PreviewMatrix";
+
+/**
+ * Browser-safe APIs for layout inspection definitions and artifacts.
+ */
+export * as Inspection from "./Inspection";

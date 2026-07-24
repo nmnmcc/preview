@@ -6,6 +6,9 @@
     "declarationMap": false,
     "jsx": "react-jsx",
     "noEmit": true,
+    "paths": {
+      "~/*": ["./app/*"]
+    },
     "rootDirs": [".", "./.react-router/types"],
     "types": ["node", "vite/client"]
   },

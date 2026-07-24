@@ -48,21 +48,28 @@ export default defineConfig({
 Add `Card.preview.ts`:
 
 ```ts
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { preview } from "@nmnmcc/preview-vue";
 import { defineComponent, h, onMounted, type PropType } from "vue";
 import Card from "./Card.vue";
 
 const Subject = defineComponent({
   props: {
-    ready: {
-      type: Function as PropType<PreviewReady>,
+    done: {
+      type: Function as PropType<PreviewDone>,
+      required: true,
+    },
+    emit: {
+      type: Function as PropType<PreviewEmit>,
       required: true,
     },
   },
   setup(props) {
     preview: {
-      onMounted(() => props.ready());
+      onMounted(async () => {
+        await props.emit("default");
+        props.done();
+      });
     }
 
     return () => h(Card);
@@ -70,7 +77,7 @@ const Subject = defineComponent({
 });
 
 export default preview({
-  render: ({ ready }) => h(Subject, { ready }),
+  render: ({ done, emit }) => h(Subject, { done, emit }),
 });
 ```
 

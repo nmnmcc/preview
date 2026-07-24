@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ready } from "@nmnmcc/preview/application";
+  import { done, emit } from "@nmnmcc/preview/application";
   import { page } from "$app/state";
   import { onMount } from "svelte";
   import "$lib/card.css";
@@ -8,7 +8,15 @@
   let { data }: { data: PageData } = $props();
 
   preview: {
-    onMount(ready);
+    onMount(() => {
+      let active = true;
+      void emit("default").then(() => {
+        if (active) done();
+      });
+      return () => {
+        active = false;
+      };
+    });
   }
 </script>
 

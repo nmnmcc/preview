@@ -40,15 +40,15 @@ describe("Svelte production builds", () => {
         "package.json": JSON.stringify({ private: true, type: "module" }),
         "src/main.ts": `import App from "./App.svelte"; console.log(App);`,
         "src/App.svelte": `<script lang="ts">
-  import type { PreviewReady } from "@nmnmcc/preview";
+  import type { PreviewEmit } from "@nmnmcc/preview";
   import { onMount } from "svelte";
 
-  let { ready }: { readonly ready?: PreviewReady } = $props();
+  let { emit }: { readonly emit?: PreviewEmit } = $props();
 
   preview: {
     onMount(() => {
       console.log("svelte-preview-only");
-      ready?.();
+      void emit?.("default");
     });
   }
   const message = "svelte-kept";

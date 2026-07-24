@@ -12,6 +12,6 @@ export default matrix(
   ({ theme }) =>
     preview({
       theme,
-      render: ({ ready }) => h(ThemedCard, { ready }),
+      render: ({ done, emit }) => h(ThemedCard, { done, emit }),
     }),
 );

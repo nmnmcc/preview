@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { PreviewPluginOptions as Options } from "../../../PreviewPlugin";
+import * as Inspection from "../../inspection";
 import * as Preview from "../../preview";
 import * as PreviewSchema from "../../schema";
 
@@ -58,6 +59,7 @@ const PreviewPluginOptions = Schema.Struct({
       Preview.PreviewViewport,
     ).check(Schema.isMinProperties(1)),
     concurrency: Schema.optionalKey(PreviewSchema.PositiveInteger),
+    inspection: Schema.optionalKey(Schema.Literal(true)),
     timeoutMs: Schema.optionalKey(PreviewSchema.PositiveInteger),
   }),
   artifacts: Schema.optionalKey(
@@ -85,6 +87,7 @@ export interface ResolvedPreviewViewport extends Schema.Schema.Type<
 
 export const ResolvedPreviewMetadata = Schema.Struct({
   viewports: Schema.Array(ResolvedPreviewViewport).check(Schema.isMinLength(1)),
+  inspection: Schema.optionalKey(Inspection.Definition),
 });
 export interface ResolvedPreviewMetadata extends Schema.Schema.Type<
   typeof ResolvedPreviewMetadata
@@ -100,6 +103,7 @@ export const ResolvedPreviewOptions = Schema.Struct({
   exclude: Schema.Array(Schema.NonEmptyString),
   output: Output,
   concurrency: PreviewSchema.PositiveInteger,
+  inspection: Schema.Boolean,
   timeoutMs: PreviewSchema.PositiveInteger,
   version: Schema.optionalKey(
     Schema.Struct({ retain: PreviewSchema.PositiveInteger }),
@@ -163,6 +167,7 @@ export const resolvePreviewOptions = Effect.fn("PreviewConfig.resolveOptions")(
             : exclude,
       output: normalizeOutput(options.artifacts?.output ?? DefaultOutput),
       concurrency: options.capture.concurrency ?? availableParallelism(),
+      inspection: options.capture.inspection === true,
       timeoutMs: options.capture.timeoutMs ?? 30_000,
       ...(options.artifacts?.version === undefined
         ? {}
@@ -246,7 +251,21 @@ export const resolvePreviewMetadata = Effect.fn(
     }
   }
 
+  let inspection: Inspection.Definition | undefined;
+  if (metadata.inspection !== false) {
+    if (metadata.inspection !== undefined && !project.inspection) {
+      return yield* new PreviewConfigError({
+        detail:
+          "Preview inspection metadata needs capture.inspection: true in the project config.",
+      });
+    }
+    if (project.inspection) {
+      inspection = metadata.inspection ?? Inspection.DefaultDefinition;
+    }
+  }
+
   return ResolvedPreviewMetadata.make({
     viewports,
+    ...(inspection === undefined ? {} : { inspection }),
   });
 });

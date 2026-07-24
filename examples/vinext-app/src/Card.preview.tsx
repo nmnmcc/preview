@@ -1,16 +1,22 @@
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { preview } from "@nmnmcc/preview-react";
 import { useEffect } from "react";
 import Card from "./Card";
 
-const ReadyCard = ({ ready }: { readonly ready: PreviewReady }) => {
+const CapturedCard = ({
+  done,
+  emit,
+}: {
+  readonly done: PreviewDone;
+  readonly emit: PreviewEmit;
+}) => {
   useEffect(() => {
-    ready();
-  }, [ready]);
+    void emit("default").then(done);
+  }, [done, emit]);
 
   return <Card title="vinext App Sandbox" />;
 };
 
 export default preview({
-  render: ({ ready }) => <ReadyCard ready={ready} />,
+  render: ({ done, emit }) => <CapturedCard done={done} emit={emit} />,
 });

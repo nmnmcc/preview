@@ -38,16 +38,16 @@ describe("React production builds", () => {
     try {
       const files = {
         "package.json": JSON.stringify({ private: true, type: "module" }),
-        "src/main.tsx": `import type { PreviewReady } from "@nmnmcc/preview";
+        "src/main.tsx": `import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { createElement, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
-function App({ ready }: { readonly ready?: PreviewReady }) {
+function App({ done, emit }: { readonly done?: PreviewDone; readonly emit?: PreviewEmit }) {
   preview: {
     useEffect(() => {
       console.log("react-preview-only");
-      ready?.();
-    }, [ready]);
+      if (done !== undefined && emit !== undefined) void emit("default").then(done);
+    }, [done, emit]);
   }
   return createElement("p", null, "react-kept");
 }

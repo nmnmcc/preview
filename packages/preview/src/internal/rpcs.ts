@@ -6,7 +6,7 @@ import * as PreviewSchema from "./schema";
 
 export const PreviewRpcBindingName = "__nmnmcc_preview_rpc__";
 
-export const PreviewRpcProtocolVersion = 1;
+export const PreviewRpcProtocolVersion = 2;
 
 const RpcMessageId = Schema.Union([Schema.String, Schema.Int]);
 
@@ -154,18 +154,53 @@ export class SandboxAwaitDispose extends Rpc.make("SandboxAwaitDispose") {}
 
 export class SandboxDisposed extends Rpc.make("SandboxDisposed") {}
 
+export const PreviewLifecycleFailureReason = Schema.Literals([
+  "duplicate-state",
+  "concurrent-emit",
+  "after-done",
+  "empty-done",
+  "done-during-emit",
+  "capture-failed",
+]);
+export type PreviewLifecycleFailureReason =
+  typeof PreviewLifecycleFailureReason.Type;
+
+export class PreviewLifecycleError extends Schema.TaggedErrorClass<PreviewLifecycleError>(
+  "@nmnmcc/preview/PreviewLifecycleError",
+)("PreviewLifecycleError", {
+  reason: PreviewLifecycleFailureReason,
+  detail: Schema.String,
+  state: Schema.optionalKey(PreviewSchema.PreviewStateName),
+}) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
+export class CaptureEmit extends Rpc.make("CaptureEmit", {
+  payload: { name: PreviewSchema.PreviewStateName },
+  error: PreviewLifecycleError,
+}) {}
+
+export class CaptureDone extends Rpc.make("CaptureDone", {
+  error: PreviewLifecycleError,
+}) {}
+
+export class CaptureRpcs extends RpcGroup.make(CaptureEmit, CaptureDone) {}
+
 export class SandboxRpcs extends RpcGroup.make(
   SandboxRequest,
   SandboxComplete,
   SandboxAwaitDispose,
   SandboxDisposed,
+  CaptureEmit,
+  CaptureDone,
 ) {}
 
-export const ApplicationReadyCodeSignature = "@nmnmcc/preview/PreviewRpcClient";
+export const ApplicationLifecycleCodeSignature =
+  "@nmnmcc/preview/PreviewRpcClient";
 
-export class ApplicationReady extends Rpc.make("ApplicationReady") {}
-
-export class ApplicationRpcs extends RpcGroup.make(ApplicationReady) {}
+export class ApplicationRpcs extends RpcGroup.make(CaptureEmit, CaptureDone) {}
 
 /** All RPCs that a Preview browser document can send. */
 export class PreviewRpcs extends RpcGroup.make(
@@ -173,5 +208,6 @@ export class PreviewRpcs extends RpcGroup.make(
   SandboxComplete,
   SandboxAwaitDispose,
   SandboxDisposed,
-  ApplicationReady,
+  CaptureEmit,
+  CaptureDone,
 ) {}

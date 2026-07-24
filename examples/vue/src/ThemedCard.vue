@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { inject } from "vue";
 import Card from "./Card.vue";
 import { PreviewThemeKey } from "./theme";
 
-defineProps<{ readonly ready: PreviewReady }>();
+defineProps<{ readonly done: PreviewDone; readonly emit: PreviewEmit }>();
 
 const theme = inject(PreviewThemeKey);
 if (theme === undefined) {
@@ -19,7 +19,8 @@ if (theme === undefined) {
     confirmed-action="State changed"
     eyebrow="Vue provide/inject"
     heading="A provider for every variant."
-    :ready="ready"
+    :done="done"
+    :emit="emit"
     :theme="theme"
   />
 </template>

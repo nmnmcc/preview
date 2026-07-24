@@ -1,4 +1,4 @@
-import { ready } from "@nmnmcc/preview/application";
+import { done, emit } from "@nmnmcc/preview/application";
 import type { GetServerSideProps, InferGetServerSidePropsType } from "next";
 import { useEffect } from "react";
 
@@ -27,7 +27,7 @@ const ProjectPage = ({
 }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
   preview: {
     useEffect(() => {
-      ready();
+      void emit("default").then(done);
     }, []);
   }
 

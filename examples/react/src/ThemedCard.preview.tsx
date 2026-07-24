@@ -1,4 +1,4 @@
-import { matrix, type PreviewReady } from "@nmnmcc/preview";
+import { matrix, type PreviewDone, type PreviewEmit } from "@nmnmcc/preview";
 import { useContext } from "react";
 import { Card, type CardTheme } from "./Card";
 import { preview, PreviewLocaleContext, type PreviewLocale } from "./preview";
@@ -30,10 +30,12 @@ const Messages = {
 >;
 
 const ThemedCard = ({
-  ready,
+  done,
+  emit,
   theme,
 }: {
-  readonly ready: PreviewReady;
+  readonly done: PreviewDone;
+  readonly emit: PreviewEmit;
   readonly theme: CardTheme;
 }) => {
   const locale = useContext(PreviewLocaleContext);
@@ -41,7 +43,7 @@ const ThemedCard = ({
     throw new Error("The preview locale provider is missing.");
   }
 
-  return <Card {...Messages[locale]} ready={ready} theme={theme} />;
+  return <Card {...Messages[locale]} done={done} emit={emit} theme={theme} />;
 };
 
 export default matrix(
@@ -54,6 +56,8 @@ export default matrix(
   ({ locale, theme }) =>
     preview({
       locale,
-      render: ({ ready }) => <ThemedCard ready={ready} theme={theme} />,
+      render: ({ done, emit }) => (
+        <ThemedCard done={done} emit={emit} theme={theme} />
+      ),
     }),
 );

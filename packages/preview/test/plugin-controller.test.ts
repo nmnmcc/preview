@@ -31,6 +31,7 @@ const options: Config.ResolvedPreviewOptions = {
   exclude: [],
   output: ".preview",
   concurrency: 1,
+  inspection: false,
   timeoutMs: 30_000,
 };
 
@@ -78,35 +79,35 @@ const makeControllerLayer = (
     Renderer.Renderer,
     Renderer.Renderer.of({ renderProject }),
   );
-  const artifactsLayer = Layer.succeed(
-    Artifacts.Artifacts,
-    Artifacts.Artifacts.of({
-      cleanProject: Effect.fnUntraced(function* () {
-        return yield* Effect.die("Unexpected project clean");
-      }),
-      cleanSource: Effect.fnUntraced(function* () {
-        return yield* Effect.die("Unexpected source clean");
-      }),
-      isPathInDirectory: (file, directory) =>
-        file === directory || file.startsWith(`${directory}/`),
-      outputDirectories: Effect.fnUntraced(function* (_root, outputs) {
-        return new Set(
-          outputs.flatMap((output) => directoriesByOutput[output] ?? []),
-        );
-      }),
-      outputDirectory: (source, output) => {
-        const separator = source.lastIndexOf("/");
-        return `${source.slice(0, separator)}/${output}`;
-      },
-      sourceDirectory: (source, output) => {
-        const separator = source.lastIndexOf("/");
-        return `${source.slice(0, separator)}/${output}/${source.slice(separator + 1)}`;
-      },
-      write: Effect.fnUntraced(function* () {
-        return yield* Effect.die("Unexpected artifact write");
-      }),
+  const artifactsLayer = Layer.mock(Artifacts.Artifacts, {
+    cleanProject: Effect.fnUntraced(function* () {
+      return yield* Effect.die("Unexpected project clean");
     }),
-  );
+    cleanSource: Effect.fnUntraced(function* () {
+      return yield* Effect.die("Unexpected source clean");
+    }),
+    isPathInDirectory: (file, directory) =>
+      file === directory || file.startsWith(`${directory}/`),
+    outputDirectories: Effect.fnUntraced(function* (
+      _root: string,
+      outputs: ReadonlyArray<string>,
+    ) {
+      return new Set(
+        outputs.flatMap((output) => directoriesByOutput[output] ?? []),
+      );
+    }),
+    outputDirectory: (source, output) => {
+      const separator = source.lastIndexOf("/");
+      return `${source.slice(0, separator)}/${output}`;
+    },
+    sourceDirectory: (source, output) => {
+      const separator = source.lastIndexOf("/");
+      return `${source.slice(0, separator)}/${output}/${source.slice(separator + 1)}`;
+    },
+    write: Effect.fnUntraced(function* () {
+      return yield* Effect.die("Unexpected artifact write");
+    }),
+  });
 
   return PluginController.layer.pipe(
     Layer.provide(
@@ -332,7 +333,9 @@ describe("preview plugin controller", () => {
         yield* controller.generate({ output: "src" });
 
         strictEqual(
-          yield* controller.isOutputPath(`${outputDirectory}/mobile.png`),
+          yield* controller.isOutputPath(
+            `${outputDirectory}/viewport=mobile.png`,
+          ),
           true,
         );
         strictEqual(yield* controller.isOutputPath("/project/logo.png"), false);

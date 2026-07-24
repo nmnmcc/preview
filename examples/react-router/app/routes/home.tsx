@@ -1,13 +1,8 @@
-import { Card } from "../components/Card";
+import { href, redirect } from "react-router";
 
-const HomeRoute = () => (
-  <Card
-    action="Mark ready"
-    body="The application route and the Sandbox preview use the same React component."
-    confirmedAction="Ready"
-    eyebrow="React Router"
-    heading="Sandbox and routes, together."
-  />
-);
+export const loader = () =>
+  redirect(href("/issues/:issueId", { issueId: "PRV-142" }));
+
+const HomeRoute = () => null;
 
 export default HomeRoute;

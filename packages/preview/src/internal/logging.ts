@@ -48,8 +48,19 @@ export const formatGeneratedArtifact = (
   path: Path.Path,
   artifact: Generation.GeneratedArtifact,
   timestampMillis: number,
-): string =>
-  `${formatPrefix("info", timestampMillis)} ${colors.cyan(previewName(path, artifact.source))} -> ${colors.dim(path.relative(path.dirname(artifact.source), artifact.pngPath))}`;
+): string => {
+  const directory = path.dirname(artifact.source);
+  const cleanPath = path.relative(directory, artifact.pngPath);
+  const inspection = artifact.inspection;
+  if (inspection === undefined) {
+    return `${formatPrefix("info", timestampMillis)} ${colors.cyan(previewName(path, artifact.source))} -> ${colors.dim(cleanPath)}`;
+  }
+  const readmePath = path.relative(directory, inspection.readmePath);
+  const overviewPath = path.relative(directory, inspection.overviewPath);
+  const checks = inspection.checks;
+  const findings = inspection.findings;
+  return `${formatPrefix("info", timestampMillis)} ${colors.cyan(previewName(path, artifact.source))} -> ${colors.dim(cleanPath)}; inspect ${colors.dim(readmePath)}, ${colors.dim(overviewPath)} (${colors.red(`${findings.errors} errors`)}, ${colors.yellow(`${findings.warnings} warnings`)}; checks ${checks.passed} passed, ${checks.failed} failed, ${checks.unresolved} unresolved)`;
+};
 
 export const formatGenerationFailure = (
   path: Path.Path,

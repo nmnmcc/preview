@@ -39,6 +39,10 @@ export interface PreviewPluginOptions {
   readonly capture: {
     readonly viewports: Readonly<Record<string, PreviewViewport>>;
     /**
+     * Generates filesystem layout inspection artifacts.
+     */
+    readonly inspection?: true;
+    /**
      * The maximum number of Playwright page tasks that may run at once.
      *
      * @default node:os.availableParallelism()

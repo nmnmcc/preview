@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import {
   normalizePath,
+  type HotPayload,
   type ModuleNode,
   type Plugin,
   type ViteDevServer,
@@ -13,7 +14,7 @@ import {
   PreviewLabel,
 } from "./check";
 import type * as Generation from "./generation";
-import { layer } from "./layer";
+import { controlledLayer } from "./layer";
 import * as Logging from "./logging";
 import * as PluginControl from "./plugin-control";
 import * as RunnerEntry from "./runner-entry";
@@ -28,12 +29,14 @@ const formatUnknownError = (error: unknown): string =>
 
 export const preview = (options: PreviewPluginOptions): Plugin => {
   const check = options.build?.check ?? true;
-  const makeRuntime = () => ManagedRuntime.make(layer(options));
+  const runtimeLayer = controlledLayer(options);
+  const makeRuntime = () => ManagedRuntime.make(runtimeLayer.layer);
   type PreviewRuntime = ReturnType<typeof makeRuntime>;
   let runtime: PreviewRuntime | undefined;
   let closePromise: Promise<void> | undefined;
   let closed = false;
   let command: "build" | "serve" | undefined;
+  let restoreHotSend: (() => void) | undefined;
 
   const getRuntime = (): PreviewRuntime => {
     runtime ??= makeRuntime();
@@ -114,6 +117,8 @@ export const preview = (options: PreviewPluginOptions): Plugin => {
 
   const closePlugin = (): Promise<void> => {
     if (closePromise !== undefined) return closePromise;
+    restoreHotSend?.();
+    restoreHotSend = undefined;
     const activeRuntime = runtime;
     if (activeRuntime === undefined) return Promise.resolve();
     closed = true;
@@ -221,6 +226,27 @@ export const preview = (options: PreviewPluginOptions): Plugin => {
           });
         }),
       );
+      restoreHotSend?.();
+      const hot = viteServer.environments.client.hot;
+      const originalSend = hot.send;
+      const send = originalSend as (
+        payload: HotPayload | string,
+        data?: unknown,
+      ) => void;
+      const wrappedSend = ((payload: HotPayload | string, data?: unknown) => {
+        if (
+          typeof payload !== "string" &&
+          payload.type === "full-reload" &&
+          (payload.path === undefined || !payload.path.endsWith(".html"))
+        ) {
+          runtimeLayer.invalidateDocuments();
+        }
+        send.call(hot, payload, data);
+      }) as typeof hot.send;
+      hot.send = wrappedSend;
+      restoreHotSend = () => {
+        if (hot.send === wrappedSend) hot.send = originalSend;
+      };
       if (viteServer.httpServer !== null) {
         viteServer.httpServer.once("listening", () => {
           scheduleGeneration(viteServer);

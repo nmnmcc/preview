@@ -7,7 +7,8 @@ preview beside its source, run it with the project's real framework and
 application setup, and use the result in local work or CI.
 
 The current Vite integration supports isolated components, real application
-routes, responsive viewports, state matrices, and stable visual artifacts.
+routes, responsive viewports, state matrices, stable visual artifacts, and
+filesystem layout inspections with image evidence.
 
 Preview requires Node 24 or later, Vite 8, and Playwright 1.61.
 
@@ -56,22 +57,28 @@ export default defineConfig({
 Add `src/Card.preview.tsx`:
 
 ```tsx
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { preview } from "@nmnmcc/preview-react";
 import { useEffect } from "react";
 
-const Card = ({ ready }: { readonly ready: PreviewReady }) => {
+const Card = ({
+  done,
+  emit,
+}: {
+  readonly done: PreviewDone;
+  readonly emit: PreviewEmit;
+}) => {
   preview: {
     useEffect(() => {
-      ready();
-    }, [ready]);
+      void emit("default").then(done);
+    }, [done, emit]);
   }
 
   return <article>Hello Preview</article>;
 };
 
 export default preview({
-  render: ({ ready }) => <Card ready={ready} />,
+  render: ({ done, emit }) => <Card done={done} emit={emit} />,
 });
 ```
 
@@ -85,7 +92,7 @@ yarn preview generate src/Card.preview.tsx
 ```
 
 The current capture workflow writes
-`src/.preview/Card.preview.tsx/desktop.png` by default.
+`src/.preview/Card.preview.tsx/default/viewport=desktop.png` by default.
 
 ## Packages and examples
 

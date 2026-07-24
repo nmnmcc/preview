@@ -1,10 +1,13 @@
 import * as Context from "effect/Context";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type { PreviewUnmount } from "../../../definition";
+import type {
+  PreviewDone,
+  PreviewEmit,
+  PreviewUnmount,
+} from "../../../definition";
 import {
   PreviewDefinition,
   PreviewExport,
@@ -121,6 +124,7 @@ const findRoot = Effect.fn("PreviewRunner.findRoot")(function* () {
 const mountDefinition = Effect.fn("PreviewRunner.mountDefinition")(function* (
   definition: PreviewDefinition,
   root: HTMLElement,
+  lifecycle: PreviewLifecycle,
 ): Effect.fn.Return<
   { readonly dispose: Effect.Effect<void> },
   Rpcs.SandboxPreviewError
@@ -132,7 +136,6 @@ const mountDefinition = Effect.fn("PreviewRunner.mountDefinition")(function* (
     );
   }
 
-  const completed = yield* Deferred.make<void>();
   const controller = new AbortController();
   let active = true;
   let mountedUnmount: PreviewUnmount | undefined;
@@ -155,16 +158,12 @@ const mountDefinition = Effect.fn("PreviewRunner.mountDefinition")(function* (
 
   const disposeEffect = Effect.promise(() => dispose().catch(() => undefined));
 
-  const ready = (): void => {
-    if (!active) return;
-    Deferred.doneUnsafe(completed, Effect.void);
-  };
-
   const mount = Effect.tryPromise({
     try: async () => {
       const unmount = await target.mount({
         root,
-        ready,
+        emit: lifecycle.emit,
+        done: lifecycle.done,
         signal: controller.signal,
       });
       if (typeof unmount !== "function") {
@@ -176,10 +175,7 @@ const mountDefinition = Effect.fn("PreviewRunner.mountDefinition")(function* (
     catch: (cause) => runnerError("Sandbox mount failed.", cause),
   });
 
-  yield* Effect.all([mount, Deferred.await(completed)], {
-    concurrency: "unbounded",
-    discard: true,
-  }).pipe(
+  yield* mount.pipe(
     Effect.onExit((exit) =>
       Exit.isFailure(exit) ? disposeEffect : Effect.void,
     ),
@@ -193,8 +189,14 @@ export interface PreviewExecution {
   readonly dispose: Effect.Effect<void>;
 }
 
+export interface PreviewLifecycle {
+  readonly emit: PreviewEmit;
+  readonly done: PreviewDone;
+}
+
 const execute = Effect.fn("PreviewRunner.execute")(function* (
   request: Rpcs.SandboxPreviewRequest,
+  lifecycle: PreviewLifecycle,
 ): Effect.fn.Return<PreviewExecution, Rpcs.SandboxPreviewError> {
   const previewExport = yield* loadPreviewExport(request.moduleUrl);
   if (request._tag === "Probe") {
@@ -211,7 +213,7 @@ const execute = Effect.fn("PreviewRunner.execute")(function* (
     );
   }
   const root = yield* findRoot();
-  const mounted = yield* mountDefinition(definition, root);
+  const mounted = yield* mountDefinition(definition, root, lifecycle);
   return {
     result: Protocol.BrowserPreviewRenderResult.make({}),
     dispose: mounted.dispose,
@@ -222,6 +224,7 @@ export interface Interface {
   /** Executes one typed Sandbox preview request in this document. */
   readonly execute: (
     request: Rpcs.SandboxPreviewRequest,
+    lifecycle: PreviewLifecycle,
   ) => Effect.Effect<PreviewExecution, Rpcs.SandboxPreviewError>;
 }
 

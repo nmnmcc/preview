@@ -3,14 +3,18 @@ import {
   template,
   type ComponentPreviewDefinition,
   type Preview,
+  type PreviewDone,
+  type PreviewEmit,
   type PreviewOptions,
-  type PreviewReady,
 } from "@nmnmcc/preview";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 export interface ReactPreviewOptions extends Preview.PreviewMetadata {
-  readonly render: (options: { readonly ready: PreviewReady }) => ReactNode;
+  readonly render: (options: {
+    readonly emit: PreviewEmit;
+    readonly done: PreviewDone;
+  }) => ReactNode;
 }
 
 export const preview: Preview.PreviewTemplate<
@@ -19,9 +23,9 @@ export const preview: Preview.PreviewTemplate<
 > = template(({ render, ...metadata }: ReactPreviewOptions): PreviewOptions => {
   return {
     ...metadata,
-    mount: ({ root, ready }) => {
+    mount: ({ root, emit, done }) => {
       const reactRoot = createRoot(root);
-      reactRoot.render(render({ ready }));
+      reactRoot.render(render({ emit, done }));
       return () => reactRoot.unmount();
     },
   };

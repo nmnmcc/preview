@@ -2,7 +2,8 @@ import {
   preview as corePreview,
   type ComponentPreviewDefinition,
   type Preview,
-  type PreviewReady,
+  type PreviewDone,
+  type PreviewEmit,
 } from "@nmnmcc/preview";
 import {
   mount,
@@ -19,7 +20,8 @@ export interface SveltePreviewOptions<TComponent extends SvelteComponent>
   extends Preview.PreviewMetadata {
   readonly component: TComponent;
   readonly props: (options: {
-    readonly ready: PreviewReady;
+    readonly emit: PreviewEmit;
+    readonly done: PreviewDone;
   }) => ComponentProps<TComponent>;
   readonly context?: MountOptions<ComponentProps<TComponent>>["context"];
 }
@@ -30,10 +32,10 @@ export const preview = <TComponent extends SvelteComponent>(
   const { component, context, props, ...metadata } = options;
   return corePreview({
     ...metadata,
-    mount: ({ root, ready }) => {
+    mount: ({ root, emit, done }) => {
       const mounted = mount(component, {
         target: root,
-        props: props({ ready }),
+        props: props({ emit, done }),
         ...(context === undefined ? {} : { context }),
       });
       return () => unmount(mounted);

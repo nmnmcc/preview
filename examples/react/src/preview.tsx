@@ -22,9 +22,9 @@ export const preview = template(
     ...metadata
   }: AppPreviewOptions): ReactPreviewOptions => ({
     ...metadata,
-    render: ({ ready }) => (
+    render: ({ done, emit }) => (
       <PreviewLocaleContext.Provider value={locale}>
-        {render({ ready })}
+        {render({ done, emit })}
       </PreviewLocaleContext.Provider>
     ),
   }),

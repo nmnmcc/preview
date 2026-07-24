@@ -12,19 +12,29 @@
     "typecheck": "react-router typegen && yarn run -T tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "@fontsource-variable/geist": "^5.2.9",
     "@nmnmcc/preview": "workspace:*",
     "@nmnmcc/preview-react": "workspace:*",
     "@react-router/node": "8.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "isbot": "^5",
+    "lucide-react": "^1.24.0",
     "playwright": "1.61.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router": "8.2.0",
+    "shadcn": "^4.13.0",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0",
     "vite": "8.1.4"
   },
   "devDependencies": {
     "@react-router/dev": "8.2.0",
+    "@tailwindcss/vite": "^4",
     "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3"
+    "@types/react-dom": "19.2.3",
+    "tailwindcss": "^4"
   }
 }

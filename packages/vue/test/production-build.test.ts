@@ -40,15 +40,15 @@ describe("Vue production builds", () => {
         "package.json": JSON.stringify({ private: true, type: "module" }),
         "src/main.ts": `import App from "./App.vue"; console.log(App);`,
         "src/App.vue": `<script lang="ts">
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewEmit } from "@nmnmcc/preview";
 import { defineComponent, onMounted } from "vue";
 export default defineComponent({
   setup() {
-    const ready: PreviewReady | undefined = undefined;
+    const emit: PreviewEmit | undefined = undefined;
     preview: {
       onMounted(() => {
         console.log("vue-normal-preview-only");
-        ready?.();
+        void emit?.("default");
       });
     }
     return { normal: "vue-normal-kept" };
@@ -56,15 +56,15 @@ export default defineComponent({
 });
 </script>
 <script setup lang="ts">
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewEmit } from "@nmnmcc/preview";
 import { onMounted } from "vue";
 
-const { ready } = defineProps<{ readonly ready?: PreviewReady }>();
+const { emit } = defineProps<{ readonly emit?: PreviewEmit }>();
 
 preview: {
   onMounted(() => {
     console.log("vue-setup-preview-only");
-    ready?.();
+    void emit?.("default");
   });
 }
 const setup = "vue-setup-kept";

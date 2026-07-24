@@ -74,9 +74,10 @@ describe("preview plugin hot updates", () => {
             `import { preview } from "@nmnmcc/preview";
 import { message } from "./message";
 export default preview({
-  mount: ({ root, ready }) => {
+  mount: async ({ root, emit, done }) => {
     root.textContent = message;
-    ready();
+    await emit("default");
+    done();
     return () => undefined;
   }
 });`,
@@ -85,9 +86,10 @@ export default preview({
             path.join(root, "Other.preview.ts"),
             `import { preview } from "@nmnmcc/preview";
 export default preview({
-  mount: ({ root, ready }) => {
+  mount: async ({ root, emit, done }) => {
     root.textContent = "other";
-    ready();
+    await emit("default");
+    done();
     return () => undefined;
   }
 });`,
@@ -131,7 +133,9 @@ export default preview({
           strictEqual(second.time.length > 0, true);
           deepStrictEqual(
             [first, second]
-              .map((entry) => path.basename(path.dirname(entry.path)))
+              .map((entry) =>
+                path.basename(path.dirname(path.dirname(entry.path))),
+              )
               .toSorted(),
             ["Card.preview.ts", "Other.preview.ts"],
           );
@@ -146,7 +150,7 @@ export default preview({
           strictEqual(updated.name, "Card");
           strictEqual(updated.time.length > 0, true);
           strictEqual(
-            path.basename(path.dirname(updated.path)),
+            path.basename(path.dirname(path.dirname(updated.path))),
             "Card.preview.ts",
           );
 

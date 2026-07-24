@@ -4,9 +4,9 @@
 export { application } from "./internal/application-definition";
 
 /**
- * Marks the current application document as ready for capture.
+ * Captures named application states and ends the current capture.
  */
-export { ready } from "./internal/browser/application";
+export { done, emit } from "./internal/browser/application";
 
 export type {
   ApplicationDefinition,

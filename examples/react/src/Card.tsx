@@ -1,4 +1,4 @@
-import type { PreviewReady } from "@nmnmcc/preview";
+import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
 import { useEffect, useState } from "react";
 import "./card.css";
 
@@ -9,8 +9,9 @@ export interface CardProps {
   readonly body: string;
   readonly confirmedAction: string;
   readonly eyebrow: string;
+  readonly done?: PreviewDone;
+  readonly emit?: PreviewEmit;
   readonly heading: string;
-  readonly ready?: PreviewReady;
   readonly theme?: CardTheme;
 }
 
@@ -18,17 +19,25 @@ export const Card = ({
   action,
   body,
   confirmedAction,
+  done,
+  emit,
   eyebrow,
   heading,
-  ready,
   theme = "light",
 }: CardProps) => {
   const [confirmed, setConfirmed] = useState(false);
 
   preview: {
     useEffect(() => {
-      ready?.();
-    }, [ready]);
+      if (done === undefined || emit === undefined) return;
+      let active = true;
+      void emit("default").then(() => {
+        if (active) done();
+      });
+      return () => {
+        active = false;
+      };
+    }, [done, emit]);
   }
 
   return (

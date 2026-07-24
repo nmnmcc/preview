@@ -147,9 +147,10 @@ describe("preview CLI", () => {
         {
           source: "/project/src/Card.preview.tsx",
           variant: "state=ready",
+          state: "ready",
           viewport: "desktop",
           pngPath:
-            "/project/src/.preview/Card.preview.tsx/state=ready.desktop.png",
+            "/project/src/.preview/Card.preview.tsx/ready/state=ready,viewport=desktop.png",
         },
       ],
       failures: [],
@@ -159,7 +160,52 @@ describe("preview CLI", () => {
       yield* Cli.generate(options);
 
       deepStrictEqual(plainLines(yield* TestConsole.logLines), [
-        `${testTime} [preview] Card -> .preview/Card.preview.tsx/state=ready.desktop.png`,
+        `${testTime} [preview] Card -> .preview/Card.preview.tsx/ready/state=ready,viewport=desktop.png`,
+      ]);
+    }).pipe(
+      Effect.provide(
+        cliLayer(
+          runnerLayer(
+            Effect.fnUntraced(function* () {
+              return summary;
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it.effect("reports the inspection README and overview", () => {
+    const summary: Generation.GenerationSummary = {
+      artifacts: [
+        {
+          source: "/project/src/Card.preview.tsx",
+          state: "default",
+          viewport: "desktop",
+          pngPath:
+            "/project/src/.preview/Card.preview.tsx/default/viewport=desktop.png",
+          inspection: {
+            directoryPath:
+              "/project/src/.preview/Card.preview.tsx/default/viewport=desktop.inspect",
+            readmePath:
+              "/project/src/.preview/Card.preview.tsx/default/viewport=desktop.inspect/README.md",
+            manifestPath:
+              "/project/src/.preview/Card.preview.tsx/default/viewport=desktop.inspect/manifest.json",
+            overviewPath:
+              "/project/src/.preview/Card.preview.tsx/default/viewport=desktop.inspect/overview.png",
+            findings: { errors: 0, warnings: 2 },
+            checks: { passed: 3, failed: 0, unresolved: 0 },
+          },
+        },
+      ],
+      failures: [],
+    };
+
+    return Effect.gen(function* () {
+      yield* Cli.generate(options);
+
+      deepStrictEqual(plainLines(yield* TestConsole.logLines), [
+        `${testTime} [preview] Card -> .preview/Card.preview.tsx/default/viewport=desktop.png; inspect .preview/Card.preview.tsx/default/viewport=desktop.inspect/README.md, .preview/Card.preview.tsx/default/viewport=desktop.inspect/overview.png (0 errors, 2 warnings; checks 3 passed, 0 failed, 0 unresolved)`,
       ]);
     }).pipe(
       Effect.provide(

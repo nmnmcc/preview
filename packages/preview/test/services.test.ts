@@ -39,7 +39,7 @@ const browserSession: Browser.Session = {
     return [{ metadata: {}, target: { type: "sandbox" } }];
   }),
   capture: Effect.fnUntraced(function* () {
-    return capturedPng;
+    return [{ state: "default", png: capturedPng }] as const;
   }),
 };
 
@@ -63,28 +63,23 @@ const unusedBrowserLayer = Layer.succeed(
   }),
 );
 
-const unusedArtifactsLayer = Layer.succeed(
-  Artifacts.Artifacts,
-  Artifacts.Artifacts.of({
-    cleanProject: Effect.fnUntraced(function* () {
-      return yield* Effect.die(
-        new Error("The empty path cleaned the project."),
-      );
-    }),
-    cleanSource: Effect.fnUntraced(function* () {
-      return yield* Effect.die(new Error("The empty path cleaned a source."));
-    }),
-    isPathInDirectory: () => false,
-    outputDirectories: Effect.fnUntraced(function* () {
-      return new Set<string>();
-    }),
-    outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
-    sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
-    write: Effect.fnUntraced(function* () {
-      return yield* Effect.die(new Error("The empty path wrote an artifact."));
-    }),
+const unusedArtifactsLayer = Layer.mock(Artifacts.Artifacts, {
+  cleanProject: Effect.fnUntraced(function* () {
+    return yield* Effect.die(new Error("The empty path cleaned the project."));
   }),
-);
+  cleanSource: Effect.fnUntraced(function* () {
+    return yield* Effect.die(new Error("The empty path cleaned a source."));
+  }),
+  isPathInDirectory: () => false,
+  outputDirectories: Effect.fnUntraced(function* () {
+    return new Set<string>();
+  }),
+  outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+  sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+  write: Effect.fnUntraced(function* () {
+    return yield* Effect.die(new Error("The empty path wrote an artifact."));
+  }),
+});
 
 const emptyDiscoveryLayer = Layer.succeed(
   Discovery.Discovery,
@@ -137,32 +132,27 @@ describe("preview services", () => {
 
   it.effect("full clean runs when every source was deleted", () => {
     const cleaned: Array<Artifacts.CleanProjectInput> = [];
-    const artifactsLayer = Layer.succeed(
-      Artifacts.Artifacts,
-      Artifacts.Artifacts.of({
-        cleanProject: Effect.fnUntraced(function* (input) {
-          cleaned.push(input);
-        }),
-        cleanSource: Effect.fnUntraced(function* () {
-          return yield* Effect.die(
-            new Error("An empty project cleaned a source."),
-          );
-        }),
-        isPathInDirectory: () => false,
-        outputDirectories: Effect.fnUntraced(function* () {
-          return new Set<string>();
-        }),
-        outputDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        sourceDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        write: Effect.fnUntraced(function* () {
-          return yield* Effect.die(
-            new Error("An empty project wrote an artifact."),
-          );
-        }),
+    const artifactsLayer = Layer.mock(Artifacts.Artifacts, {
+      cleanProject: Effect.fnUntraced(function* (input) {
+        cleaned.push(input);
       }),
-    );
+      cleanSource: Effect.fnUntraced(function* () {
+        return yield* Effect.die(
+          new Error("An empty project cleaned a source."),
+        );
+      }),
+      isPathInDirectory: () => false,
+      outputDirectories: Effect.fnUntraced(function* () {
+        return new Set<string>();
+      }),
+      outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      write: Effect.fnUntraced(function* () {
+        return yield* Effect.die(
+          new Error("An empty project wrote an artifact."),
+        );
+      }),
+    });
 
     return Effect.gen(function* () {
       const renderer = yield* Renderer.Renderer;
@@ -193,47 +183,43 @@ describe("preview services", () => {
 
   it.effect("renders and cleans a complete full run", () => {
     const events: Array<string> = [];
-    const artifactsLayer = Layer.succeed(
-      Artifacts.Artifacts,
-      Artifacts.Artifacts.of({
-        cleanProject: Effect.fnUntraced(function* (input) {
-          events.push("project");
-          deepStrictEqual(input, {
-            root: "/project",
-            outputs: [".preview", "images"],
-            activeSources: [{ source, output: "images" }],
-          });
-        }),
-        cleanSource: Effect.fnUntraced(function* (input) {
-          events.push("source");
-          deepStrictEqual(input, {
-            source,
-            output: "images",
-            targets: [{ viewport: "mobile" }],
-            version: { retain: 2 },
-          });
-        }),
-        isPathInDirectory: () => false,
-        outputDirectories: Effect.fnUntraced(function* () {
-          return new Set<string>();
-        }),
-        outputDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        sourceDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        write: Effect.fnUntraced(function* (input) {
-          events.push("write");
-          deepStrictEqual(input, {
-            source,
-            output: "images",
-            viewport: "mobile",
-            png: capturedPng,
-            version: { retain: 2 },
-          });
-          return "/project/images/Card.preview.tsx/mobile.png";
-        }),
+    const artifactsLayer = Layer.mock(Artifacts.Artifacts, {
+      cleanProject: Effect.fnUntraced(function* (input) {
+        events.push("project");
+        deepStrictEqual(input, {
+          root: "/project",
+          outputs: [".preview", "images"],
+          activeSources: [{ source, output: "images" }],
+        });
       }),
-    );
+      cleanSource: Effect.fnUntraced(function* (input) {
+        events.push("source");
+        deepStrictEqual(input, {
+          source,
+          output: "images",
+          targets: [{ state: "default", viewport: "mobile" }],
+          version: { retain: 2 },
+        });
+      }),
+      isPathInDirectory: () => false,
+      outputDirectories: Effect.fnUntraced(function* () {
+        return new Set<string>();
+      }),
+      outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      write: Effect.fnUntraced(function* (input) {
+        events.push("write");
+        deepStrictEqual(input, {
+          source,
+          output: "images",
+          state: "default",
+          viewport: "mobile",
+          png: capturedPng,
+          version: { retain: 2 },
+        });
+        return "/project/images/Card.preview.tsx/default/viewport=mobile.png";
+      }),
+    });
 
     return Effect.gen(function* () {
       const renderer = yield* Renderer.Renderer;
@@ -248,8 +234,10 @@ describe("preview services", () => {
         artifacts: [
           {
             source,
+            state: "default",
             viewport: "mobile",
-            pngPath: "/project/images/Card.preview.tsx/mobile.png",
+            pngPath:
+              "/project/images/Card.preview.tsx/default/viewport=mobile.png",
           },
         ],
         failures: [],
@@ -297,37 +285,33 @@ describe("preview services", () => {
                   cause: new Error("capture"),
                 });
               }
-              return capturedPng;
+              return [{ state: "ready", png: capturedPng }] as const;
             }),
           } satisfies Browser.Session;
         }),
       }),
     );
-    const artifactsLayer = Layer.succeed(
-      Artifacts.Artifacts,
-      Artifacts.Artifacts.of({
-        cleanProject: Effect.fnUntraced(function* () {
-          return yield* Effect.die(
-            new Error("A partial run cleaned the project."),
-          );
-        }),
-        cleanSource: Effect.fnUntraced(function* (input) {
-          cleaned.push(input);
-        }),
-        isPathInDirectory: () => false,
-        outputDirectories: Effect.fnUntraced(function* () {
-          return new Set<string>();
-        }),
-        outputDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        sourceDirectory: (writtenSource, output) =>
-          `${writtenSource}/${output}`,
-        write: Effect.fnUntraced(function* (input) {
-          strictEqual(input.variant, "state=ready");
-          return "/project/.preview/Card.preview.tsx/state=ready.mobile.png";
-        }),
+    const artifactsLayer = Layer.mock(Artifacts.Artifacts, {
+      cleanProject: Effect.fnUntraced(function* () {
+        return yield* Effect.die(
+          new Error("A partial run cleaned the project."),
+        );
       }),
-    );
+      cleanSource: Effect.fnUntraced(function* (input) {
+        cleaned.push(input);
+      }),
+      isPathInDirectory: () => false,
+      outputDirectories: Effect.fnUntraced(function* () {
+        return new Set<string>();
+      }),
+      outputDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      sourceDirectory: (writtenSource, output) => `${writtenSource}/${output}`,
+      write: Effect.fnUntraced(function* (input) {
+        strictEqual(input.variant, "state=ready");
+        strictEqual(input.state, "ready");
+        return "/project/.preview/Card.preview.tsx/ready/state=ready,viewport=mobile.png";
+      }),
+    });
 
     return Effect.gen(function* () {
       const renderer = yield* Renderer.Renderer;
@@ -337,16 +321,7 @@ describe("preview services", () => {
         filters: [source],
       });
 
-      deepStrictEqual(cleaned, [
-        {
-          source,
-          output: ".preview",
-          targets: [
-            { viewport: "mobile", variant: "state=ready" },
-            { viewport: "mobile", variant: "state=error" },
-          ],
-        },
-      ]);
+      deepStrictEqual(cleaned, []);
       strictEqual(summary.artifacts.length, 1);
       strictEqual(summary.failures.length, 1);
       assertInclude(summary.failures[0]?.message ?? "", "Capture failed");
@@ -526,7 +501,7 @@ describe("preview services", () => {
                 capture: Effect.fnUntraced(function* (input) {
                   return yield* pageTask(
                     `capture:${input.source}:${input.viewport.name}`,
-                    capturedPng,
+                    [{ state: "default", png: capturedPng }] as const,
                   );
                 }),
               } satisfies Browser.Session;
@@ -541,28 +516,25 @@ describe("preview services", () => {
             }),
           }),
         );
-        const concurrentArtifactsLayer = Layer.succeed(
-          Artifacts.Artifacts,
-          Artifacts.Artifacts.of({
-            cleanProject: Effect.fnUntraced(function* () {
-              return yield* Effect.die("Unexpected project clean");
-            }),
-            cleanSource: Effect.fnUntraced(function* () {
-              return yield* Effect.die("Unexpected source clean");
-            }),
-            isPathInDirectory: () => false,
-            outputDirectories: Effect.fnUntraced(function* () {
-              return new Set<string>();
-            }),
-            outputDirectory: (writtenSource, output) =>
-              `${writtenSource}/${output}`,
-            sourceDirectory: (writtenSource, output) =>
-              `${writtenSource}/${output}`,
-            write: Effect.fnUntraced(function* (input) {
-              return `${input.source}/${input.viewport}.png`;
-            }),
+        const concurrentArtifactsLayer = Layer.mock(Artifacts.Artifacts, {
+          cleanProject: Effect.fnUntraced(function* () {
+            return yield* Effect.die("Unexpected project clean");
           }),
-        );
+          cleanSource: Effect.fnUntraced(function* () {
+            return yield* Effect.die("Unexpected source clean");
+          }),
+          isPathInDirectory: () => false,
+          outputDirectories: Effect.fnUntraced(function* () {
+            return new Set<string>();
+          }),
+          outputDirectory: (writtenSource, output) =>
+            `${writtenSource}/${output}`,
+          sourceDirectory: (writtenSource, output) =>
+            `${writtenSource}/${output}`,
+          write: Effect.fnUntraced(function* (input) {
+            return `${input.source}/viewport=${input.viewport}.png`;
+          }),
+        });
         const concurrentConfigLayer = Config.layer({
           capture: {
             concurrency: 2,

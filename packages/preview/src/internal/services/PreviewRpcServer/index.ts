@@ -11,7 +11,7 @@ import type * as Rpc from "effect/unstable/rpc/Rpc";
 import type * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import type * as RpcMessage from "effect/unstable/rpc/RpcMessage";
 import * as RpcServer from "effect/unstable/rpc/RpcServer";
-import type { Page } from "playwright";
+import type { Page, Request } from "playwright";
 import {
   PreviewRpcBindingName,
   PreviewRpcBindingRequest,
@@ -54,6 +54,16 @@ export interface Interface {
     | Rpc.ServicesServer<Rpcs>
     | Scope.Scope
   >;
+  /** Finds the document that owns an Effect RPC server client. */
+  readonly document: (
+    serverClientId: number,
+  ) => Effect.Effect<Option.Option<DocumentIdentity>>;
+  /** Finds the document that currently owns the page. */
+  readonly currentDocument: Effect.Effect<Option.Option<DocumentIdentity>>;
+  /** Checks that a document still owns the page. */
+  readonly isCurrent: (document: DocumentIdentity) => Effect.Effect<boolean>;
+  /** Starts a new document epoch and reloads the same Playwright page. */
+  readonly reloadCurrentDocument: () => void;
 }
 
 /** The typed RPC server attached to one Playwright page. */
@@ -62,9 +72,16 @@ export class PreviewRpcServer extends Context.Service<
   Interface
 >()("@nmnmcc/preview/PreviewRpcServer") {}
 
+/** The private identity of one main-frame document on a Playwright page. */
+export interface DocumentIdentity {
+  readonly epoch: number;
+  readonly documentId: string;
+}
+
 interface ClientSession {
   readonly clientId: number;
   readonly serverClientId: number;
+  readonly document: DocumentIdentity;
   readonly responses: Queue.Queue<RpcFromServer, Cause.Done>;
   closedReason: PreviewRpcClosedReason | undefined;
   receiving: boolean;
@@ -83,7 +100,7 @@ const releaseDisposable = (disposable: {
 }): Effect.Effect<void> =>
   Effect.promise(() => disposable.dispose().catch(() => undefined));
 
-const makePreviewRpcServer = Effect.fnUntraced(function* (
+export const make = Effect.fnUntraced(function* (
   page: Page,
 ): Effect.fn.Return<
   PreviewRpcServer["Service"],
@@ -94,7 +111,11 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
   const disconnects = yield* Queue.unbounded<number>();
   const sessionsByClientId = new Map<number, ClientSession>();
   const sessionsByServerClientId = new Map<number, ClientSession>();
-  let activeDocumentId: string | undefined;
+  let announcedNavigation = 0;
+  let appliedNavigation = 0;
+  let nextDocumentEpoch = 0;
+  let pendingDocumentEpoch: number | undefined;
+  let activeDocument: DocumentIdentity | undefined;
   let closedReason: PreviewRpcClosedReason | undefined;
   let nextServerClientId = 0;
   let writeRequest: WriteRequest = () =>
@@ -139,6 +160,23 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
       { discard: true },
     );
 
+  const sameDocument = (
+    left: DocumentIdentity,
+    right: DocumentIdentity,
+  ): boolean =>
+    left.epoch === right.epoch && left.documentId === right.documentId;
+
+  const applyNavigation = (): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      if (appliedNavigation === announcedNavigation) return;
+      appliedNavigation = announcedNavigation;
+      pendingDocumentEpoch = nextDocumentEpoch++;
+      activeDocument = undefined;
+      yield* closeSessions("navigation", true);
+    });
+
+  const reconcileNavigation = stateLock.withPermits(1)(applyNavigation());
+
   const closeTransport = (
     reason: PreviewRpcClosedReason,
   ): Effect.Effect<void> =>
@@ -146,7 +184,8 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
       Effect.gen(function* () {
         if (closedReason !== undefined) return;
         closedReason = reason;
-        activeDocumentId = undefined;
+        pendingDocumentEpoch = undefined;
+        activeDocument = undefined;
         yield* closeSessions(reason, true);
       }),
     );
@@ -182,11 +221,22 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
   ): Effect.Effect<PreviewRpcBindingResponse> =>
     stateLock.withPermits(1)(
       Effect.gen(function* () {
+        yield* applyNavigation();
         if (closedReason !== undefined) return closed(closedReason);
-        if (activeDocumentId !== undefined && activeDocumentId !== documentId) {
+        if (
+          activeDocument !== undefined &&
+          activeDocument.documentId === documentId
+        ) {
+          return accepted();
+        }
+        if (activeDocument !== undefined) {
           yield* closeSessions("navigation", true);
         }
-        activeDocumentId = documentId;
+        activeDocument = {
+          epoch: pendingDocumentEpoch ?? nextDocumentEpoch++,
+          documentId,
+        };
+        pendingDocumentEpoch = undefined;
         return accepted();
       }),
     );
@@ -197,16 +247,27 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
   ): Effect.Effect<Option.Option<ClientSession>> =>
     stateLock.withPermits(1)(
       Effect.gen(function* () {
-        if (closedReason !== undefined || activeDocumentId !== documentId) {
+        yield* applyNavigation();
+        if (
+          closedReason !== undefined ||
+          activeDocument === undefined ||
+          activeDocument.documentId !== documentId
+        ) {
           return Option.none<ClientSession>();
         }
         const current = sessionsByClientId.get(clientId);
-        if (current !== undefined) return Option.some(current);
+        if (
+          current !== undefined &&
+          sameDocument(current.document, activeDocument)
+        ) {
+          return Option.some(current);
+        }
 
         const responses = yield* Queue.bounded<RpcFromServer, Cause.Done>(1);
         const session: ClientSession = {
           clientId,
           serverClientId: nextServerClientId++,
+          document: activeDocument,
           responses,
           closedReason: undefined,
           receiving: false,
@@ -287,26 +348,45 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
         send: (
           serverClientId: number,
           response: RpcMessage.FromServerEncoded,
-        ): Effect.Effect<void> => {
-          const session = sessionsByServerClientId.get(serverClientId);
-          if (session === undefined) return Effect.void;
-          if (response._tag === "ClientProtocolError") {
-            return closeSession(session, "protocol-error", false);
-          }
-          return Schema.decodeUnknownEffect(RpcFromServerSchema)(response).pipe(
-            Effect.flatMap((message) =>
-              Queue.offer(session.responses, message),
-            ),
-            Effect.catch(() => closeSession(session, "protocol-error", false)),
-          );
-        },
-        end: (serverClientId: number): Effect.Effect<void> => {
-          const session = sessionsByServerClientId.get(serverClientId);
-          return session === undefined
-            ? Effect.void
-            : closeSession(session, "server-ended", false);
-        },
-        clientIds: Effect.sync(() => new Set(sessionsByServerClientId.keys())),
+        ): Effect.Effect<void> =>
+          Effect.gen(function* () {
+            const session = yield* stateLock.withPermits(1)(
+              Effect.gen(function* () {
+                yield* applyNavigation();
+                return sessionsByServerClientId.get(serverClientId);
+              }),
+            );
+            if (session === undefined) return;
+            if (response._tag === "ClientProtocolError") {
+              return yield* closeSession(session, "protocol-error", false);
+            }
+            yield* Schema.decodeUnknownEffect(RpcFromServerSchema)(
+              response,
+            ).pipe(
+              Effect.flatMap((message) =>
+                Queue.offer(session.responses, message),
+              ),
+              Effect.catch(() =>
+                closeSession(session, "protocol-error", false),
+              ),
+            );
+          }),
+        end: (serverClientId: number): Effect.Effect<void> =>
+          stateLock.withPermits(1)(
+            Effect.gen(function* () {
+              yield* applyNavigation();
+              const session = sessionsByServerClientId.get(serverClientId);
+              if (session !== undefined) {
+                yield* closeSession(session, "server-ended", false);
+              }
+            }),
+          ),
+        clientIds: stateLock.withPermits(1)(
+          Effect.gen(function* () {
+            yield* applyNavigation();
+            return new Set(sessionsByServerClientId.keys());
+          }),
+        ),
         initialMessage: Effect.succeedNone,
         supportsAck: true,
         supportsTransferables: false,
@@ -356,6 +436,28 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
     () => Effect.sync(() => page.off("close", onPageClose)),
   );
 
+  const invalidateCurrentDocument = (): void => {
+    if (closedReason !== undefined) return;
+    announcedNavigation += 1;
+    runFork(reconcileNavigation);
+  };
+
+  const reloadCurrentDocument = (): void => {
+    invalidateCurrentDocument();
+    if (page.url() === "about:blank" || page.isClosed()) return;
+    void page.reload({ waitUntil: "commit" }).catch(() => undefined);
+  };
+
+  const onRequest = (request: Request): void => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      invalidateCurrentDocument();
+    }
+  };
+  yield* Effect.acquireRelease(
+    Effect.sync(() => page.on("request", onRequest)),
+    () => Effect.sync(() => page.off("request", onRequest)),
+  );
+
   const serve: Interface["serve"] = (group, options) =>
     RpcServer.make(group, options).pipe(
       Effect.provideService(RpcServer.Protocol, protocol),
@@ -363,14 +465,55 @@ const makePreviewRpcServer = Effect.fnUntraced(function* (
       Effect.asVoid,
     );
 
-  return PreviewRpcServer.of({ serve });
+  const document: Interface["document"] = (serverClientId) =>
+    stateLock.withPermits(1)(
+      Effect.gen(function* () {
+        yield* applyNavigation();
+        const session = sessionsByServerClientId.get(serverClientId);
+        if (
+          session === undefined ||
+          activeDocument === undefined ||
+          !sameDocument(session.document, activeDocument)
+        ) {
+          return Option.none<DocumentIdentity>();
+        }
+        return Option.some(session.document);
+      }),
+    );
+
+  const currentDocument: Interface["currentDocument"] = stateLock.withPermits(
+    1,
+  )(
+    Effect.gen(function* () {
+      yield* applyNavigation();
+      return Option.fromUndefinedOr(activeDocument);
+    }),
+  );
+
+  const isCurrent: Interface["isCurrent"] = (document) =>
+    stateLock.withPermits(1)(
+      Effect.gen(function* () {
+        yield* applyNavigation();
+        return (
+          activeDocument !== undefined && sameDocument(document, activeDocument)
+        );
+      }),
+    );
+
+  return PreviewRpcServer.of({
+    serve,
+    document,
+    currentDocument,
+    isCurrent,
+    reloadCurrentDocument,
+  });
 });
 
 /** Installs the Node and Playwright side of Preview RPC for one page. */
 export const layer = (
   page: Page,
 ): Layer.Layer<PreviewRpcServer, PreviewRpcTransportError> =>
-  Layer.effect(PreviewRpcServer, makePreviewRpcServer(page));
+  Layer.effect(PreviewRpcServer, make(page));
 
 /** Installs one typed RPC group for the lifetime of the current scope. */
 export const serveLayer = <Rpcs extends Rpc.Any>(

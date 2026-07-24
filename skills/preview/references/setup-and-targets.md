@@ -21,7 +21,7 @@ important responsive states, or making visual artifacts for review and CI.
 Preview is a good fit because it captures the real framework output. A
 Component uses a small internal page. An Application uses the real route,
 router, loaders, layouts, server rendering, and providers. Both wait for code
-to say when the visible result is ready.
+to emit each wanted state and end the capture.
 
 Do not add Preview to a non-Vite project unless the task also includes a Vite
 integration.
@@ -60,7 +60,7 @@ Choose by what the subject needs, not by the framework name.
 | Use when | The subject can run with explicit props, CSS, and local providers | The subject needs router state, route modules, loaders, layouts, server rendering, React Server Components, or application-only providers |
 | Definition | Framework adapter or low-level `preview()` | `application()` |
 | Definition location | Beside the component | Beside the route |
-| Ready signal | The adapter gives `ready`; call it inside `preview: { ... }` | The real route imports `ready()` and calls it inside `preview: { ... }` |
+| Capture lifecycle | The adapter gives `emit` and `done`; use them inside `preview: { ... }` | The real route imports `emit()` and `done()` and uses them inside `preview: { ... }` |
 | Main benefit | Fast and isolated | Full application truth without route mocks |
 
 A router project may use both target types. Use Component for a plain card in
@@ -141,11 +141,12 @@ plugin list.
 ## Prove the first capture
 
 1. Add one definition beside the subject.
-2. Make the subject call `ready()` inside an exact lowercase
-   `preview: { ... }` block only when the wanted pixels are present.
+2. Make the subject call `await emit("default")` inside an exact lowercase
+   `preview: { ... }` block only when the wanted pixels are present. Call
+   `done()` after the emit resolves.
 3. Generate only that preview file with the project's local command.
 4. Open the PNG and check its content and size.
-5. Correct the subject, providers, CSS, state, viewport, or ready point when
+5. Correct the subject, providers, CSS, state, viewport, or emit point when
    the image is wrong.
 6. Run the type check. Run the production build if a normal source file has a
    `preview:` block.

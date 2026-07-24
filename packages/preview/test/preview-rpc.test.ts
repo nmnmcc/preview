@@ -6,7 +6,7 @@ import { describe, it } from "@effect/vitest";
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { chromium, type Page } from "playwright";
@@ -92,6 +92,7 @@ describe("Preview RPC", () => {
         Effect.scoped(
           Effect.gen(function* () {
             const cancelled = yield* Deferred.make<void>();
+            const rpcServer = yield* PreviewRpcServer.make(page);
             const handlers = PreviewRpcTestGroup.toLayer({
               Echo: ({ value }) =>
                 Effect.sync(() => {
@@ -108,6 +109,9 @@ describe("Preview RPC", () => {
                 ),
               Screenshot: () => Effect.promise(() => page.screenshot()),
             });
+            yield* rpcServer
+              .serve(PreviewRpcTestGroup)
+              .pipe(Effect.provide(handlers));
 
             yield* Effect.gen(function* () {
               yield* Effect.tryPromise(() => page.goto(baseUrl));
@@ -121,6 +125,73 @@ describe("Preview RPC", () => {
               deepStrictEqual(first.cancelled, ["first"]);
               strictEqual(first.screenshotBytes > 100, true);
               yield* Deferred.await(cancelled);
+
+              const firstDocument = yield* rpcServer.currentDocument;
+              if (Option.isNone(firstDocument)) {
+                return yield* Effect.die(
+                  "The first RPC document identity is missing.",
+                );
+              }
+
+              const navigationUrl = new URL(baseUrl);
+              navigationUrl.searchParams.set("held-navigation", "true");
+              let releaseNavigation = (): void => undefined;
+              let reportNavigation = (): void => undefined;
+              const navigationReleased = new Promise<void>((resolve) => {
+                releaseNavigation = resolve;
+              });
+              const navigationStarted = new Promise<void>((resolve) => {
+                reportNavigation = resolve;
+              });
+              yield* Effect.tryPromise(() =>
+                page.route(
+                  navigationUrl.href,
+                  async (route) => {
+                    reportNavigation();
+                    await navigationReleased;
+                    await route.continue();
+                  },
+                  { times: 1 },
+                ),
+              );
+              const navigation = page.goto(navigationUrl.href);
+              yield* Effect.promise(() => navigationStarted);
+
+              strictEqual(
+                Option.isNone(yield* rpcServer.currentDocument),
+                true,
+              );
+              strictEqual(
+                yield* rpcServer.isCurrent(firstDocument.value),
+                false,
+              );
+
+              releaseNavigation();
+              yield* Effect.tryPromise(() => navigation);
+              const second = yield* Effect.tryPromise(() =>
+                waitForResult(page),
+              );
+              if (second._tag === "Failure") {
+                return yield* Effect.die(second.cause);
+              }
+              strictEqual(second.echo, "node:browser:2");
+              deepStrictEqual(second.events, ["one", "two", "three"]);
+
+              const secondDocument = yield* rpcServer.currentDocument;
+              if (Option.isNone(secondDocument)) {
+                return yield* Effect.die(
+                  "The second RPC document identity is missing.",
+                );
+              }
+              strictEqual(
+                secondDocument.value.epoch > firstDocument.value.epoch,
+                true,
+              );
+              strictEqual(
+                secondDocument.value.documentId ===
+                  firstDocument.value.documentId,
+                false,
+              );
 
               const staleDocumentId = "stale-test-document";
               const connected = yield* Effect.tryPromise(() =>
@@ -143,15 +214,17 @@ describe("Preview RPC", () => {
                 reason: "invalid-message",
               });
 
-              yield* Effect.tryPromise(() => page.reload());
-              const second = yield* Effect.tryPromise(() =>
-                waitForResult(page),
-              );
-              if (second._tag === "Failure") {
-                return yield* Effect.die(second.cause);
+              const reloaded = page.waitForNavigation({
+                waitUntil: "commit",
+              });
+              rpcServer.reloadCurrentDocument();
+              yield* Effect.tryPromise(() => reloaded);
+              const third = yield* Effect.tryPromise(() => waitForResult(page));
+              if (third._tag === "Failure") {
+                return yield* Effect.die(third.cause);
               }
-              strictEqual(second.echo, "node:browser:2");
-              deepStrictEqual(second.events, ["one", "two", "three"]);
+              strictEqual(third.echo, "node:browser:3");
+              deepStrictEqual(third.events, ["one", "two", "three"]);
 
               const stale = yield* Effect.tryPromise(() =>
                 callBinding(page, {
@@ -166,13 +239,7 @@ describe("Preview RPC", () => {
                 version: Rpcs.PreviewRpcProtocolVersion,
                 reason: "stale-document",
               });
-            }).pipe(
-              Effect.provide(
-                PreviewRpcServer.serveLayer(page, PreviewRpcTestGroup).pipe(
-                  Layer.provide(handlers),
-                ),
-              ),
-            );
+            });
           }),
         ),
       );

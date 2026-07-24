@@ -3,7 +3,7 @@
 Use an Application preview when the UI state needs a real route. Preview runs the
 normal router, loaders, layouts, server rendering, React Server Components,
 and application providers. It opens one final same-origin location and waits
-for the route to call `ready()`.
+for the route to emit named states and call `done()`.
 
 This target gives route-level truth without copied router setup or framework
 module mocks.
@@ -14,7 +14,7 @@ module mocks.
 - Add a React Router Application
 - Add a SvelteKit Application
 - Add a vinext Application
-- Mark the real route ready
+- Capture states from the real route
 - Keep capture code out of production
 - Follow Application runtime rules
 
@@ -32,9 +32,10 @@ export default application({
 })
 ```
 
-Import Application `ready()` in the real route. Call it only after the route
-has the state that the PNG must show. The function is a no-op outside capture
-and is safe during server rendering.
+Import Application `emit()` and `done()` in the real route. Emit only after the
+route has the state that the PNG must show. Both functions have no capture work
+outside Preview. A valid `emit()` resolves immediately, and `done()` has no
+effect.
 
 An Application-only project needs `@nmnmcc/preview` and Playwright. It does
 not need a React, Vue, or Svelte Component adapter.
@@ -106,7 +107,7 @@ export default application({
 })
 ```
 
-## Mark the real route ready
+## Capture states from the real route
 
 Put capture-only lifecycle work in an exact lowercase
 `preview: { ... }` block.
@@ -114,13 +115,13 @@ Put capture-only lifecycle work in an exact lowercase
 React, React Router, and vinext:
 
 ```tsx
-import { ready } from "@nmnmcc/preview/application"
+import { done, emit } from "@nmnmcc/preview/application"
 import { useEffect } from "react"
 
 export function ProjectRoute() {
   preview: {
     useEffect(() => {
-      ready()
+      void emit("default").then(done)
     }, [])
   }
 
@@ -132,11 +133,13 @@ Svelte and SvelteKit:
 
 ```svelte
 <script lang="ts">
-  import { ready } from "@nmnmcc/preview/application"
+  import { done, emit } from "@nmnmcc/preview/application"
   import { onMount } from "svelte"
 
   preview: {
-    onMount(ready)
+    onMount(() => {
+      void emit("default").then(done)
+    })
   }
 </script>
 ```
@@ -145,18 +148,22 @@ Vue:
 
 ```vue
 <script setup lang="ts">
-import { ready } from "@nmnmcc/preview/application"
+import { done, emit } from "@nmnmcc/preview/application"
 import { onMounted } from "vue"
 
 preview: {
-  onMounted(ready)
+  onMounted(async () => {
+    await emit("default")
+    done()
+  })
 }
 </script>
 ```
 
 If a loader, client request, font, image, or state transition changes the
-wanted pixels, call `ready()` after that exact work instead of directly after
-mount. Do not use a timeout as the signal.
+wanted pixels, call `await emit(name)` after that exact work. Change the UI and
+emit another unique name when one route must produce more than one state. Call
+`done()` after the final emit resolves. Do not use a timeout as the signal.
 
 ## Keep capture code out of production
 
@@ -195,8 +202,12 @@ This option disables the final check. It does not disable label removal.
 - Browser HTTP and HTTPS requests to another origin are blocked.
 - Server loaders, server hooks, server rendering, and other server code are
   outside browser request interception.
-- Call `ready()` once the current document shows the final wanted state. The
-  call is safe more than once.
+- Give every state a lowercase name that starts with a letter or number and
+  then uses letters, numbers, `_`, or `-`.
+- Await each `emit(name)` call. Do not call two emits at once or reuse a name
+  for one target, variant, and viewport.
+- Call `done()` after at least one emit resolves. Repeated calls have no
+  effect. Calling it before or during an emit fails the capture.
 
-Read [Artifacts and CLI](artifacts-and-cli.md) when navigation, readiness, or
+Read [Artifacts and CLI](artifacts-and-cli.md) when navigation, lifecycle, or
 capture fails.

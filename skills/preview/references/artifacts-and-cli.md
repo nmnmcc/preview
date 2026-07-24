@@ -1,15 +1,15 @@
 # Artifacts and CLI
 
 Use the local Preview binary for focused generation, visual checks, and CI.
-Treat PNG paths as generated output. A command exit and an inspected image are
-different checks; use both.
+Treat clean PNGs and optional inspection trees as generated output. A command
+exit and an inspected image are different checks; use both.
 
 ## Contents
 
 - Generate images
 - Inspect the visual result
 - Understand output paths
-- Clean stale PNG files
+- Clean stale artifact files
 - Keep versioned artifacts
 - Find common faults
 - Follow browser and write safety rules
@@ -48,6 +48,18 @@ run.
 Start with the changed file. Use a full run after the focused image is right
 or when discovery, cleaning, or CI coverage is the subject of the task.
 
+For a larger agent task, keep the proof loop small and exact:
+
+1. Define a Component preview for the local state that changed.
+2. Add matrix axes only for states that can change the visible result.
+3. Define an Application preview when a real route, loader, or layout matters.
+4. Generate the focused source and inspect every new PNG.
+5. Run a full generation to prove discovery and stale-file cleaning.
+
+Keep preview data fixed when the task is about UI. A local fixture makes the
+same input produce the same artifact. It also lets an agent compare states
+without a model call, network service, or database.
+
 If one target fails, Preview tries the other targets and exits with a non-zero
 status at the end. The CLI and Vite plugin use the same log form:
 `12:34:56 PM [preview] Card -> path`. Each logged path is relative to its
@@ -56,7 +68,9 @@ preview source.
 ## Inspect the visual result
 
 Do not stop when the command succeeds. Open each PNG needed to prove the task.
-Use the agent's image-viewing tool when one is available.
+When layout inspection is enabled, read its `README.md` and open its annotated
+overview and relevant evidence PNGs. Use the agent's image-viewing tool when
+one is available.
 
 Check these facts against the request:
 
@@ -67,7 +81,7 @@ Check these facts against the request:
 - CSS, fonts, icons, and images are present
 - each required matrix variant differs in the intended way
 
-If the PNG is wrong, correct the application, preview setup, or ready point and
+If the PNG is wrong, correct the application, preview setup, or emit point and
 generate again. Do not hide a product defect by changing only the preview
 unless the preview itself is wrong.
 
@@ -83,8 +97,9 @@ src/
 ├── Card.preview.tsx
 └── .preview/
     └── Card.preview.tsx/
-        ├── mobile.png
-        └── desktop.png
+        └── default/
+            ├── viewport=mobile.png
+            └── viewport=desktop.png
 ```
 
 Set `artifacts.output` to a child path relative to each preview source:
@@ -103,19 +118,24 @@ preview({
 ```
 
 `src/Card.preview.tsx` then writes to
-`src/artifacts/previews/Card.preview.tsx/desktop.png`.
+`src/artifacts/previews/Card.preview.tsx/default/viewport=desktop.png`.
 
 The output cannot be absolute. It cannot contain `.` or `..` path parts or
 glob syntax. Preview keeps each source in its own directory under the output
 path.
 
-Named collections and matrices put the variant before the viewport:
+Each emitted state has its own directory. Named collections and matrices use
+`viewport=<name>` after the variant:
 
 ```text
-.preview/Card.preview.tsx/theme=light,state=ready.desktop.png
+.preview/Card.preview.tsx/default/theme=light,state=ready,viewport=desktop.png
 ```
 
-## Clean stale PNG files
+A viewport name follows the same token rule as a matrix value. It starts with
+an ASCII letter or digit. The other characters can be ASCII letters, digits,
+`_`, or `-`. A dot is not valid in a viewport name.
+
+## Clean stale artifact files
 
 Enable cleaning in Vite config:
 
@@ -131,12 +151,14 @@ Cleaning follows these rules:
 - A full run also cleans output for deleted sources.
 - Preview does not clean a source when discovery or metadata is incomplete.
 - A known target that fails capture keeps its last good artifact.
-- Clean removes PNG files only. It keeps other file types.
+- Each Preview source output directory is owned by Preview. Clean removes every
+  entry that is not part of a current target. This includes old artifact names,
+  HTML, JSON, PNG files, and subdirectories.
 - With an output override, a full clean run checks both the configured output
   and the override.
 
 Use a full run when the task must prove that deleted sources or variants no
-longer leave PNG files.
+longer leave generated files.
 
 ## Keep versioned artifacts
 
@@ -155,14 +177,15 @@ preview({
 })
 ```
 
-Preview compares new PNG bytes with the current real file. Equal bytes reuse
-the current version. Changed bytes create a sortable UTC file and update a
-relative symbolic link:
+Preview compares new artifact bytes with the current real files. Equal bytes
+reuse the current version. Changed bytes create sortable UTC files and update
+relative symbolic links:
 
 ```text
 .preview/Card.preview.tsx/
-├── desktop@20260717T103045123Z.png
-└── desktop.png -> desktop@20260717T103045123Z.png
+└── default/
+    ├── viewport=desktop@20260717T103045123Z.png
+    └── viewport=desktop.png -> viewport=desktop@20260717T103045123Z.png
 ```
 
 The file system must support symbolic links. Preview does not fall back to a
@@ -177,6 +200,12 @@ with the current one.
 Retention runs when Preview writes or reuses a version. It does not depend on
 `artifacts.clean`.
 
+When inspection is enabled, the clean PNG and the complete sibling `.inspect/`
+directory form one bundle. Their real paths use the same timestamp. Reuse and
+retention act on the whole pair, so one target cannot mix inspection files from
+different captures. Read [Layout inspection](inspection.md) for the tree and
+workflow.
+
 ## Find common faults
 
 Use the failure to choose the next check:
@@ -186,15 +215,16 @@ Use the failure to choose the next check:
 | No preview is found | Check the Vite root, default `*.preview.{js,jsx,ts,tsx}` suffix, `files.include`, `files.exclude`, and the command selector. Confirm the file has a supported default export. |
 | The local command is missing | Install the core package in this project and run its package script or package-manager binary form. Do not rely on a global binary. |
 | Chromium is missing or does not match | Install Chromium with the project's Playwright 1.61 command. In Nix or Devenv, use the supplied matching browser and environment instead. |
-| Capture waits until `timeoutMs` | Find the target that never calls `ready()` inside an exact lowercase `preview: { ... }` block. For a Component, follow the adapter callback. For an Application, call Application `ready()` in the real route. Wait only for work needed by the final pixels. |
-| The PNG is blank, partial, or still loading | The ready point is early, or CSS, a provider, data, a font, or an image is missing. Open the PNG, follow the subject's visible dependencies, and move readiness to the true final state. |
+| Capture waits until `timeoutMs` | Find the target that never calls `emit()` or `done()` inside an exact lowercase `preview: { ... }` block. For a Component, follow the adapter callbacks. For an Application, use the Application functions in the real route. Wait only for work needed by the named pixels. |
+| An emit fails | Await every `emit(name)` call. Use each valid lowercase name once. Do not emit at the same time, emit after `done()`, or call `done()` before the first emit or during an emit. |
+| The PNG is blank, partial, or still loading | The emit point is early, or CSS, a provider, data, a font, or an image is missing. Open the PNG, follow the subject's visible dependencies, and move the emit to the true wanted state. |
 | A Component fails on route modules | Change it to an Application. Do not mock the router, `$app/*`, loaders, server state, or RSC state only to keep a Component target. |
 | An Application navigation or request is blocked | Keep the location, redirects, and browser requests on the Vite origin. Remember that server-side work is outside browser request interception. |
 | A production build reports Preview code | Put each lifecycle call in an exact lowercase `preview: { ... }` block. Keep its direct imports easy for the build to remove after the block is gone. Run the real client and server builds. Disable `build.check` only for known intentional code. |
 | Old PNG files remain | Enable `artifacts.clean` and run a full generation. A focused run cleans only its selected sources. A failed or incomplete source keeps its last good file. |
 | One matrix variant fails | Read the named variant in the error, fix that state, and rerun. Other targets may have completed, but the final command status remains non-zero. |
 
-Do not fix a readiness failure by adding a blind sleep. A longer timeout is
+Do not fix a lifecycle failure by adding a blind sleep. A longer timeout is
 correct only when required work is known to take longer.
 
 ## Follow browser and write safety rules

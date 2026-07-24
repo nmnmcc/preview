@@ -1,7 +1,12 @@
 {
   "name": "@nmnmcc/preview-react",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Define React previews for @nmnmcc/preview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nmnmcc/preview.git",
+    "directory": "packages/react"
+  },
   "type": "module",
   "license": "Apache-2.0",
   "sideEffects": false,

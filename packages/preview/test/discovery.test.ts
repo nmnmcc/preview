@@ -72,6 +72,7 @@ describe("preview discovery", () => {
           yield* artifacts.write({
             source,
             output: "src",
+            state: "default",
             viewport: "test",
             png: Uint8Array.from([137, 80, 78, 71]),
           });

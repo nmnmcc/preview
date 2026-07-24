@@ -183,9 +183,107 @@ Do not copy either kind of rule into test code.
 - Treat the reference sources as read-only. Change a fixed source commit only
   when you also update its matching package.
 
+## Add a changeset
+
+Add a changeset when a change affects a public package in a way that users can
+see:
+
+```sh
+yarn changeset
+```
+
+Select each public package that the change affects. Use these release types:
+
+- `patch` for a compatible fix.
+- `minor` for a compatible feature.
+- `major` for a breaking public API change.
+
+Write a short release note in Basic English. State what changed for the user.
+Do not list internal work unless users need to know about it.
+
+A root documentation-only change, test-only change, or CI change does not need
+a changeset when package files stay the same. If package files change but no
+package needs a release, add an empty changeset:
+
+```sh
+yarn changeset --empty
+```
+
+Check the release plan before you commit:
+
+```sh
+yarn changeset status
+```
+
+Commit the new file in `.changeset` with the code change. Do not edit package
+versions or package changelogs by hand.
+
+## Release packages
+
+The `Release` GitHub Actions workflow runs on `main`.
+
+When `main` has changesets, the workflow opens or updates the
+`chore: release packages` pull request. This pull request consumes the
+changesets and updates package versions, package changelogs, internal package
+ranges, and the Yarn lock file.
+
+Review those files and merge the release pull request. The next workflow run
+checks the exact release commit, builds all packages, publishes each new
+version to npm, and creates its Git tag and GitHub Release. npm uses GitHub
+OIDC. The workflow does not read or set an `NPM_TOKEN` secret.
+
+## Set up npm once
+
+Each package must exist on npm before npm can accept a Trusted Publisher. For a
+new registry name, publish a local placeholder at version `0.0.0`. Do not use a
+version that this repository may need to publish.
+
+Create all four package names:
+
+- `@nmnmcc/preview`
+- `@nmnmcc/preview-react`
+- `@nmnmcc/preview-svelte`
+- `@nmnmcc/preview-vue`
+
+Then add the same Trusted Publisher to each package on npm:
+
+- Provider: GitHub Actions
+- Organization or user: `nmnmcc`
+- Repository: `preview`
+- Workflow filename: `release.yml`
+- Environment: leave this empty
+- Allowed action: `npm publish`
+
+The workflow has `id-token: write` only for this OIDC exchange. It runs on a
+GitHub-hosted runner and uses npm from the pinned Devenv environment.
+
+In the GitHub repository settings, allow GitHub Actions to read and write the
+repository and to create pull requests. Keep branch protection on `main`; the
+workflow publishes only after the release pull request reaches `main`.
+
+## CI environment and caches
+
+Both workflows install Devenv 2.1.2 from its exact source commit. The project
+environment then comes from `devenv.lock`, `yarn.lock`, and `uv.lock`. All
+project commands run through `devenv shell`.
+
+The check workflow caches only Yarn and uv downloads. Its cache key includes
+all three lock files, the runner system, and the runner architecture. It does
+not cache `node_modules`, build output, or generated preview files. The release
+workflow starts with empty package-manager caches. Both workflows use the
+read-only Devenv binary cache for Nix store downloads.
+
 ## Checks
 
-Run the checks from the workspace root:
+Run the full check from the workspace root:
+
+```sh
+yarn check
+```
+
+This command checks formatting, GitHub Actions, Changesets, the public Agent
+Skill, unit behavior, workspace types, example builds, and end-to-end output.
+Use a smaller command while you work:
 
 ```sh
 yarn check:skill
@@ -203,10 +301,16 @@ makes all example PNG files, and checks them with Vitest.
 
 - Keep README files for users. Put development setup, internal design, and
   contributor commands in this file.
-- Write all project-owned documentation in [Basic English](https://en.wikipedia.org/wiki/Basic_English) as far as this is practical.
+- Write all project-owned documentation in
+  [Basic English](https://en.wikipedia.org/wiki/Basic_English) as far as this
+  is practical.
 - Use short, direct sentences. Put one main idea in each sentence.
 - Use common words and the active voice.
-- Keep names, code, API terms, and other needed technical terms. Explain a term when a new reader may not know it.
-- Keep the meaning exact. A clear technical statement is more important than a strict word list.
-- Do not rewrite generated files, third-party files, or Git submodule documentation.
-- When you change an old document, make the changed part follow these rules. New documents must follow them from the start.
+- Keep names, code, API terms, and other needed technical terms. Explain a term
+  when a new reader may not know it.
+- Keep the meaning exact. A clear technical statement is more important than a
+  strict word list.
+- Do not rewrite generated files, third-party files, or Git submodule
+  documentation.
+- When you change an old document, make the changed part follow these rules.
+  New documents must follow them from the start.

@@ -11,7 +11,7 @@ import * as Renderer from "./services/Renderer";
 
 const platform = Layer.merge(NodeFileSystem.layer, NodePath.layer);
 
-export const layer = (options: PreviewPluginOptions) => {
+export const controlledLayer = (options: PreviewPluginOptions) => {
   const { playwright, ...capture } = options.capture;
   const config = Config.layer({
     capture,
@@ -21,7 +21,8 @@ export const layer = (options: PreviewPluginOptions) => {
       : { artifacts: options.artifacts }),
   });
   const artifacts = Artifacts.layer.pipe(Layer.provide(platform));
-  const browser = Browser.layer(playwright).pipe(Layer.provide(platform));
+  const browserControl = Browser.controlledLayer(playwright);
+  const browser = browserControl.layer.pipe(Layer.provide(platform));
   const discovery = Discovery.layer.pipe(
     Layer.provide(Layer.merge(platform, artifacts)),
   );
@@ -30,7 +31,13 @@ export const layer = (options: PreviewPluginOptions) => {
     Layer.provide(Layer.merge(services, config)),
   );
 
-  return PluginController.layer.pipe(
-    Layer.provide(Layer.mergeAll(artifacts, config, platform, renderer)),
-  );
+  return {
+    layer: PluginController.layer.pipe(
+      Layer.provide(Layer.mergeAll(artifacts, config, platform, renderer)),
+    ),
+    invalidateDocuments: browserControl.invalidateDocuments,
+  };
 };
+
+export const layer = (options: PreviewPluginOptions) =>
+  controlledLayer(options).layer;

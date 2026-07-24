@@ -1,10 +1,13 @@
 <script lang="ts">
-  import type { PreviewReady } from "@nmnmcc/preview";
+  import type { PreviewDone, PreviewEmit } from "@nmnmcc/preview";
   import { getContext } from "svelte";
   import Card from "./Card.svelte";
   import { PreviewThemeKey, type CardTheme } from "./theme";
 
-  let { ready }: { readonly ready: PreviewReady } = $props();
+  let {
+    done,
+    emit,
+  }: { readonly done: PreviewDone; readonly emit: PreviewEmit } = $props();
 
   const theme = getContext<CardTheme | undefined>(PreviewThemeKey);
   if (theme === undefined) {
@@ -18,6 +21,7 @@
   confirmedAction="State changed"
   eyebrow="Svelte context"
   heading="Typed props meet mount context."
-  {ready}
+  {done}
+  {emit}
   {theme}
 />

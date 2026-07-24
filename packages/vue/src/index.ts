@@ -3,13 +3,17 @@ import {
   template,
   type ComponentPreviewDefinition,
   type Preview,
+  type PreviewDone,
+  type PreviewEmit,
   type PreviewOptions,
-  type PreviewReady,
 } from "@nmnmcc/preview";
 import { createApp, type VNodeChild } from "vue";
 
 export interface VuePreviewOptions extends Preview.PreviewMetadata {
-  readonly render: (options: { readonly ready: PreviewReady }) => VNodeChild;
+  readonly render: (options: {
+    readonly emit: PreviewEmit;
+    readonly done: PreviewDone;
+  }) => VNodeChild;
 }
 
 export const preview: Preview.PreviewTemplate<
@@ -18,8 +22,8 @@ export const preview: Preview.PreviewTemplate<
 > = template(({ render, ...metadata }: VuePreviewOptions): PreviewOptions => {
   return {
     ...metadata,
-    mount: ({ root, ready }) => {
-      const app = createApp({ render: () => render({ ready }) });
+    mount: ({ root, emit, done }) => {
+      const app = createApp({ render: () => render({ emit, done }) });
       app.mount(root);
       return () => app.unmount();
     },

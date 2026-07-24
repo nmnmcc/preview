@@ -1,0 +1,33 @@
+name: Set up Devenv
+description: Install the pinned Devenv CLI and restore safe download caches.
+
+inputs:
+  cache-dependencies:
+    description: Restore Yarn and uv download caches.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Nix
+      uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
+
+    - name: Use the Devenv binary cache
+      uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+      with:
+        name: devenv
+        skipPush: true
+
+    - name: Restore package download caches
+      if: inputs.cache-dependencies == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cache/uv
+          ~/.yarn/berry/cache
+        key: dependencies-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devenv.lock', 'uv.lock', 'yarn.lock') }}
+
+    - name: Install Devenv 2.1.2
+      shell: bash
+      run: nix profile install "github:cachix/devenv/ea3d94ac9d6bf6a1313773170122ca4e2ef5a0be#devenv"
