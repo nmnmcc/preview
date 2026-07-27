@@ -261,8 +261,13 @@ export const layer = Layer.effect(
 
     const flush = Effect.fn("PreviewPlugin.flushScheduled")(function* () {
       const state = yield* Ref.get(lifecycle);
+      if (state._tag !== "Attached") return;
+      // The Vite server sets its URLs only after it starts listening. Keep
+      // the pending request until then; the listening handler schedules a
+      // full generation, and later file changes schedule the pending paths.
+      if (state.server.baseUrl() === undefined) return;
       const request = yield* Ref.getAndSet(pending, Pending.None());
-      if (state._tag !== "Attached" || request._tag === "None") return;
+      if (request._tag === "None") return;
 
       const generateRequest: GenerateRequest =
         request._tag === "All" ? {} : { paths: [...request.paths] };

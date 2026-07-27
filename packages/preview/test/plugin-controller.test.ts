@@ -200,6 +200,59 @@ describe("preview plugin controller", () => {
     }),
   );
 
+  it.effect("keeps scheduled work until the server has a URL", () =>
+    Effect.gen(function* () {
+      const rendered = yield* Deferred.make<void>();
+      const inputs = yield* Ref.make<Array<Renderer.RenderProjectInput>>([]);
+      const errors: Array<string> = [];
+      let url: string | undefined;
+      const renderProject = Effect.fnUntraced(function* (
+        input: Renderer.RenderProjectInput,
+      ) {
+        yield* Ref.update(inputs, (values) => [...values, input]);
+        yield* Deferred.succeed(rendered, undefined);
+        return emptySummary;
+      });
+      const server: PluginController.Server = {
+        baseUrl: () => url,
+        unwatch: () => undefined,
+      };
+
+      yield* Effect.gen(function* () {
+        const controller = yield* PluginController.PluginController;
+        yield* controller.configure({
+          ...project,
+          error: (message) => {
+            errors.push(message);
+          },
+        });
+        yield* controller.attach(server);
+
+        // The server is not listening yet: the scheduled work must wait
+        // without an error instead of failing with "no reachable local URL".
+        yield* controller.schedule(["/project/A.preview.ts"]);
+        yield* TestClock.adjust("100 millis");
+        assertFalse(yield* Deferred.isDone(rendered));
+        deepStrictEqual(errors, []);
+
+        // Once the server has a URL, a later change flushes the kept paths.
+        url = "http://preview.test";
+        yield* controller.schedule(["/project/B.preview.ts"]);
+        yield* TestClock.adjust("100 millis");
+        yield* Deferred.await(rendered);
+
+        deepStrictEqual(yield* Ref.get(inputs), [
+          {
+            root: "/project",
+            baseUrl: "http://preview.test",
+            filters: ["/project/A.preview.ts", "/project/B.preview.ts"],
+          },
+        ]);
+        deepStrictEqual(errors, []);
+      }).pipe(Effect.provide(makeControllerLayer(renderProject)));
+    }),
+  );
+
   it.effect("waits for background work before shutdown completes", () =>
     Effect.gen(function* () {
       const renderStarted = yield* Deferred.make<void>();

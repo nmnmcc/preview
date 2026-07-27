@@ -248,9 +248,13 @@ export const preview = (options: PreviewPluginOptions): Plugin => {
         if (hot.send === wrappedSend) hot.send = originalSend;
       };
       if (viteServer.httpServer !== null) {
-        viteServer.httpServer.once("listening", () => {
+        if (viteServer.httpServer.listening) {
           scheduleGeneration(viteServer);
-        });
+        } else {
+          viteServer.httpServer.once("listening", () => {
+            scheduleGeneration(viteServer);
+          });
+        }
       }
     },
     async handleHotUpdate(context) {
