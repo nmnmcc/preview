@@ -5,6 +5,11 @@ devenv.local.yaml
 .direnv
 .venv
 
+# Third-party submodule checkouts. Keeps API-based commit tools
+# (@changesets/ghcommit, isomorphic-git) from walking into them.
+references/effect-smol/
+references/vite/
+
 .pre-commit-config.yaml
 
 .yarn/*
