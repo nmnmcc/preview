@@ -36,4 +36,9 @@ jobs:
         uses: ./.github/actions/setup-devenv
 
       - name: Run checks in Devenv
+        if: github.head_ref != 'changeset-release/main'
         run: devenv shell -- yarn check
+
+      - name: Run release pull request checks in Devenv
+        if: github.head_ref == 'changeset-release/main'
+        run: devenv shell -- yarn check:release-pr
