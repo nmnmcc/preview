@@ -28,6 +28,10 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Make the base branch available to Changesets
+        if: github.event_name == 'pull_request'
+        run: git branch --force main origin/main
+
       - name: Set up Devenv
         uses: ./.github/actions/setup-devenv
 

@@ -103,8 +103,8 @@ npx playwright install chromium
 
 Remove the adapter from the command for an Application-only or plain DOM
 setup. Replace it with the Vue or Svelte adapter when needed. Do not add or
-change `effect` only for Preview. The core package declares the exact Effect
-version it uses.
+change `effect` only for Preview. The core package keeps its Effect version
+internal.
 
 Skip the browser install when the environment already provides a matching
 Chromium and sets Playwright to use it. In particular, do not run a browser
