@@ -1,6 +1,6 @@
 {
   "name": "@nmnmcc/preview",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Define, run, and inspect UI previews with Vite",
   "repository": {
     "type": "git",

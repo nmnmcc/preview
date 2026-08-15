@@ -1,5 +1,12 @@
 # @nmnmcc/preview
 
+## 1.0.2
+
+### Patch Changes
+
+- f1a3f58: Keep Preview's Effect runtime private so applications can use another Effect
+  version without aliases or peer dependency conflicts.
+
 ## 1.0.1
 
 ### Patch Changes
