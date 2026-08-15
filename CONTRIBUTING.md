@@ -87,8 +87,9 @@ artifact names stay stable. An `exclude` value comes from its axis. A named
 Keep viewport group names and preset names exact. Both groups and presets are
 readonly. Change an existing preset only in a breaking release.
 
-Keep the package's Effect dependency and peer dependency on the same exact
-version. Keep the CLI binary entry at `./dist/main.mjs`.
+Keep the package's Effect dependency on the workspace's exact version. Effect
+is an internal dependency. Do not add it as a peer dependency. Keep the CLI
+binary entry at `./dist/main.mjs`.
 
 ## Agent skill
 
